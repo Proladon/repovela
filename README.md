@@ -25,19 +25,19 @@ Repovela 是以 [keifu](https://github.com/trasta298/keifu) 圖譜演算法為�
 
 ## 開發
 
-需要 Node.js 22.12+、Rust stable，以及 [Tauri 2 作業系統建置前置需求](https://v2.tauri.app/start/prerequisites/)。Windows 需要 Visual Studio C++ Build Tools 與 WebView2。
+需要 Node.js 22.12+、pnpm 10.33.0、Rust stable，以及 [Tauri 2 作業系統建置前置需求](https://v2.tauri.app/start/prerequisites/)。Windows 需要 Visual Studio C++ Build Tools 與 WebView2。專案透過 `packageManager` 固定 pnpm 版本，使用 `pnpm-lock.yaml` 鎖定依賴；安裝時執行 `pnpm install --frozen-lockfile`。
 
 ```powershell
 git clone https://github.com/Proladon/repovela.git
 cd repovela
-npm ci
-npm run tauri dev
+pnpm install --frozen-lockfile
+pnpm run tauri dev
 ```
 
 瀏覽器預覽（展示模式使用 keifu 的公開歷史，不讀取本機專案）：
 
 ```powershell
-npm run dev
+pnpm run dev
 ```
 
 開啟 `http://127.0.0.1:5173/?demo`，加入 `demo://keifu` 和 `demo://另一個專案` 測試分頁。展示模式只在開發伺服器啟用，正式桌面版本不包含展示資料。
@@ -45,14 +45,14 @@ npm run dev
 ## 建置與測試
 
 ```powershell
-npm run build
-npm test
-npx playwright install chromium
-npm run test:visual
+pnpm run build
+pnpm test
+pnpm exec playwright install chromium
+pnpm run test:visual
 cargo test --manifest-path src-tauri/Cargo.toml -p repovela-core
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-npm run tauri build -- --no-bundle
+pnpm run tauri build --no-bundle
 ```
 
 最後一個指令會產生 `src-tauri/target/release/repovela.exe`。移除 `--no-bundle` 即可建立平台安裝包。此版本只在 Windows 完成編譯驗證；macOS、Linux 尚未驗證。
@@ -71,7 +71,7 @@ src-tauri/core/src/graph/     keifu 色彩分配演算法
 
 畫面測試使用改寫前 React 版本保存的 20 張基準圖片，涵蓋 1360×880、1000×640 兩種視窗尺寸。樣式檔與專案儲存格式維持不變。基準來源與比對範圍見 [e2e/BASELINES.md](e2e/BASELINES.md)。
 
-Windows 桌面驗證可執行 `npm run validate:windows`，自動建置並測試真正的原生視窗、WebView2 與 Git IPC，另存 19 張截圖；已有執行檔時用 `npm run test:windows`。新 checkout 沒有本機畫面基準時可先跑 `npm run test:flow`。環境需求、人工資料夾選擇器／DPI 檢查與證據保存見 [e2e/WINDOWS.md](e2e/WINDOWS.md)，結果見 [VALIDATION.md](VALIDATION.md)。
+Windows 桌面驗證可執行 `pnpm run validate:windows`，自動建置並測試真正的原生視窗、WebView2 與 Git IPC，另存 19 張截圖；已有執行檔時用 `pnpm run test:windows`。新 checkout 沒有本機畫面基準時可先跑 `pnpm run test:flow`。環境需求、人工資料夾選擇器／DPI 檢查與證據保存見 [e2e/WINDOWS.md](e2e/WINDOWS.md)，結果見 [VALIDATION.md](VALIDATION.md)。
 
 ## 快捷鍵
 

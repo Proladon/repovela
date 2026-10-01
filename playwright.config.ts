@@ -20,7 +20,7 @@ export default defineConfig({
     toHaveScreenshot: { maxDiffPixels: 0, threshold: 0.01, animations: 'disabled', caret: 'hide' },
   },
   webServer: {
-    command: 'npm run dev',
+    command: 'pnpm run dev',
     url: 'http://127.0.0.1:5173',
     reuseExistingServer: false,
   },

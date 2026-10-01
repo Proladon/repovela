@@ -2,22 +2,22 @@
 
 ## 重跑自動檢查
 
-從專案根目錄執行。需要 Node.js 22.12+、Git、Rust／Visual Studio C++ Build Tools、Windows PowerShell 5.1 與 WebView2 Runtime。請在已登入的 Windows 桌面執行；100% 縮放時螢幕需容納 1360×880 的內容區及標題列。
+從專案根目錄執行。需要 Node.js 22.12+、pnpm 10.33.0、Git、Rust／Visual Studio C++ Build Tools、Windows PowerShell 5.1 與 WebView2 Runtime。請在已登入的 Windows 桌面執行；100% 縮放時螢幕需容納 1360×880 的內容區及標題列。
 
 ```powershell
-npm ci
-npx playwright install chromium
-npm run test:flow
-npm run test:visual
-npm run validate:windows
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
+pnpm run test:flow
+pnpm run test:visual
+pnpm run validate:windows
 ```
 
 `validate:windows` 依序執行 Vue／session／選擇器契約測試、正式 Tauri 建置與桌面測試，失敗就停止。已有本次原始碼編譯的執行檔時，可直接執行：
 
 ```powershell
-npm run test:windows
-npm run test:windows -- --repeat-each=2
-npx playwright show-report playwright-report/windows
+pnpm run test:windows
+pnpm run test:windows --repeat-each=2
+pnpm exec playwright show-report playwright-report/windows
 ```
 
 `test:flow` 不讀取或建立截圖基準，適合新 checkout。`test:visual` 仍要求本機已確認的 Chromium 基準，詳見 [BASELINES.md](BASELINES.md)；不要為了通過測試直接覆寫基準。
@@ -50,7 +50,7 @@ fixture 位於 `%TEMP%/repovela-validation/fixtures-*`，避免非 Git 資料夾
 以下步驟尚未操作驗證。產生資料，再以獨立 profile 啟動正式版：
 
 ```powershell
-npm run validation:fixtures
+pnpm run validation:fixtures
 $validationFixtures = Get-Content .validation/fixtures.json -Raw -Encoding UTF8 | ConvertFrom-Json
 $validationProfile = Join-Path $validationFixtures.root 'manual-webview2'
 $validationPreviousProfile = $env:WEBVIEW2_USER_DATA_FOLDER

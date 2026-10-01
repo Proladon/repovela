@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vue-tsc --noEmit && vite build",
@@ -12,7 +13,7 @@
     "test:visual": "playwright test",
     "test:flow": "playwright test --grep \"畫面與完整瀏覽流程\" --ignore-snapshots",
     "test:windows": "playwright test --config playwright.windows.config.ts",
-    "validate:windows": "npm test && npm run tauri build -- --no-bundle && npm run test:windows",
+    "validate:windows": "pnpm test && pnpm run tauri build --no-bundle && pnpm run test:windows",
     "validation:fixtures": "node --experimental-strip-types scripts/validation-fixtures.ts"
   },
   "dependencies": {
