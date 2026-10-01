@@ -115,6 +115,64 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('首次切換才載入各分頁，之後切換直接顯示快取的歷史', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(mocked.repository).toHaveBeenCalledExactlyOnceWith('/a', true, 500);
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    const history = screen.getByRole('region', { name: 'Git 歷史' });
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
+    expect(screen.getByRole('region', { name: 'Git 歷史' })).toBe(history);
+    expect(screen.queryByText('正在讀取 Git 歷史…')).toBeNull();
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    expect(screen.queryByText('正在讀取 Git 歷史…')).toBeNull();
+    expect(mocked.repository).toHaveBeenCalledTimes(2);
+  });
+
+  it('載入中切換分頁不會重複請求，背景完成後保留結果', async () => {
+    saveProjects();
+    let resolveA!: (value: Snapshot) => void;
+    mocked.repository.mockImplementation((path: string) =>
+      path === '/a'
+        ? new Promise<Snapshot>((resolve) => {
+            resolveA = resolve;
+          })
+        : Promise.resolve(snapshot(path)),
+    );
+    render(App);
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
+    expect(mocked.repository).toHaveBeenCalledTimes(2);
+    expect((screen.getByRole('button', { name: '重新整理' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    resolveA(snapshot('/a'));
+    await flushPromises();
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
+    expect(screen.queryByText('正在讀取 Git 歷史…')).toBeNull();
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(mocked.repository).toHaveBeenCalledTimes(2);
+  });
+
+  it('取得焦點與經過 60 秒都不會自動重新載入歷史', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      saveProjects();
+      render(App);
+      await screen.findByRole('heading', { name: '初始版本' });
+      await fireEvent.focus(window);
+      await vi.advanceTimersByTimeAsync(60000);
+      await flushPromises();
+      expect(mocked.repository).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('取消資料夾選擇器不會新增專案或變更目前分頁', async () => {
     saveProjects();
     mocked.choose.mockResolvedValue([]);
@@ -194,6 +252,13 @@ describe('桌面分頁與瀏覽互動', () => {
     await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
     await screen.findByRole('heading', { name: '加入專案管理' });
     expect(screen.queryByText(/資料夾已移動/)).toBeNull();
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
+    expect(screen.getByText(/資料夾已移動/)).toBeTruthy();
+    expect(mocked.repository).toHaveBeenCalledTimes(2);
+    mocked.repository.mockImplementation(async (path: string) => snapshot(path));
+    await fireEvent.click(screen.getByRole('button', { name: '重新嘗試' }));
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(mocked.repository).toHaveBeenCalledTimes(3);
   });
 
   it('同一個部分暫存檔案可分別查看已暫存與未暫存 diff', async () => {
@@ -226,6 +291,50 @@ describe('桌面分頁與瀏覽互動', () => {
     await fireEvent.click(screen.getByRole('button', { name: '專案 A' }));
     await screen.findByRole('tab', { name: '專案 A' });
     expect(screen.getAllByRole('tab')).toHaveLength(2);
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    expect(mocked.repository.mock.calls.filter(([path]) => path === '/a')).toHaveLength(2);
+  });
+
+  it('關閉後重開會忽略舊分頁尚未完成的請求', async () => {
+    saveProjects();
+    let resolveOld!: (value: Snapshot) => void;
+    mocked.repository.mockImplementationOnce(
+      () =>
+        new Promise<Snapshot>((resolve) => {
+          resolveOld = resolve;
+        }),
+    );
+    render(App);
+    await fireEvent.click(screen.getByRole('button', { name: '關閉 專案 A 分頁' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    await fireEvent.click(screen.getByRole('button', { name: '專案 A' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    const stale = snapshot('/a');
+    stale.rows = [{ ...stale.rows[0], commit: { ...commits[0], message: '舊分頁的資料' } }];
+    resolveOld(stale);
+    await flushPromises();
+    expect(screen.queryByText('舊分頁的資料')).toBeNull();
+    expect(mocked.repository).toHaveBeenCalledTimes(3);
+  });
+
+  it('變更載入範圍會讀取新歷史，切回分頁沿用新的範圍', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(
+      async (path: string, _remotes: boolean, limit: number) => ({
+        ...snapshot(path),
+        hasMore: limit < 1000,
+      }),
+    );
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '載入更多紀錄' }));
+    await screen.findByRole('region', { name: 'Git 歷史' });
+    expect(mocked.repository).toHaveBeenLastCalledWith('/a', true, 1000);
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
+    expect(screen.queryByRole('button', { name: '載入更多紀錄' })).toBeNull();
+    expect(mocked.repository).toHaveBeenCalledTimes(3);
   });
 
   it('搜尋、鍵盤選取與遠端顯示選項各自保留在分頁中', async () => {
@@ -333,16 +442,20 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(screen.getByText('目前的 diff')).toBeTruthy();
   });
 
-  it('重新取得焦點會更新目前專案與已開啟的 diff', async () => {
+  it('手動重新整理只更新目前專案與已開啟的 diff，R 也可更新', async () => {
     saveProjects();
     render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
     await screen.findByRole('heading', { name: '初始版本' });
     const panel = screen.getByRole('region', { name: '詳細資訊' });
     await fireEvent.click(within(panel).getByRole('button', { name: /README.md/ }));
     await screen.findByText('新的內容');
     const repositoryCalls = mocked.repository.mock.calls.length;
     const patchCalls = mocked.patch.mock.calls.length;
-    await fireEvent.focus(window);
+    await fireEvent.click(screen.getByRole('button', { name: '重新整理' }));
     await waitFor(() =>
       expect(mocked.repository.mock.calls.length).toBeGreaterThan(repositoryCalls),
     );
@@ -350,5 +463,10 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(mocked.repository).toHaveBeenLastCalledWith('/a', true, 500);
     expect(mocked.patch).toHaveBeenLastCalledWith('/a', commits[1].oid, 'README.md', 'commit');
     await screen.findByText('新的內容');
+    await fireEvent.keyDown(window, { key: 'r' });
+    await flushPromises();
+    expect(mocked.repository).toHaveBeenCalledTimes(repositoryCalls + 2);
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    expect(mocked.repository).toHaveBeenCalledTimes(repositoryCalls + 2);
   });
 });

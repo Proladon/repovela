@@ -35,12 +35,24 @@ const session = shallowRef(
   })(),
 );
 const dispatch = (action: Action) => {
-  session.value = sessionReducer(session.value, action);
+  const next = sessionReducer(session.value, action);
+  for (const previousTab of session.value.tabs) {
+    if (!next.tabs.some((t) => t.path === previousTab.path)) {
+      const remaining = new Map(resources.value);
+      remaining.delete(previousTab.path);
+      resources.value = remaining;
+    }
+  }
+  session.value = next;
 };
-const resource = shallowRef<{ key: string; data?: Snapshot; error?: string; loading: boolean }>({
-  key: '',
-  loading: false,
-});
+interface RepositoryResource {
+  key: string;
+  data?: Snapshot;
+  error?: string;
+  loading: boolean;
+}
+const resources = shallowRef(new Map<string, RepositoryResource>());
+let disposed = false;
 const refresh = ref(0);
 const projectSearch = ref('');
 const queries = ref<Record<string, string>>({});
@@ -58,15 +70,15 @@ const scrollPositions: Record<string, number> = {};
 const tab = computed(() => session.value.tabs.find((t) => t.path === session.value.active));
 const project = computed(() => session.value.projects.find((p) => p.path === session.value.active));
 const key = computed(() =>
-  tab.value ? `${tab.value.path}:${tab.value.remotes}:${tab.value.limit}` : '',
+  tab.value ? JSON.stringify([tab.value.path, tab.value.remotes, tab.value.limit]) : '',
 );
-const snapshot = computed(() =>
-  resource.value.key === key.value ? resource.value.data : undefined,
-);
-const error = computed(() => (resource.value.key === key.value ? resource.value.error : undefined));
-const loading = computed(
-  () => !!tab.value && (resource.value.key !== key.value || resource.value.loading),
-);
+const resource = computed(() => {
+  const cached = tab.value ? resources.value.get(tab.value.path) : undefined;
+  return cached?.key === key.value ? cached : undefined;
+});
+const snapshot = computed(() => resource.value?.data);
+const error = computed(() => resource.value?.error);
+const loading = computed(() => !!tab.value && (!resource.value || resource.value.loading));
 const query = computed(() => (tab.value ? (queries.value[tab.value.path] ?? '') : ''));
 const queryLower = computed(() => query.value.trim().toLowerCase());
 const matches = computed(
@@ -103,32 +115,36 @@ watch(
   { immediate: true },
 );
 
-watch(
-  [key, refresh],
-  (_value, _previous, onCleanup) => {
-    const currentTab = tab.value;
-    if (!currentTab) return;
-    let live = true;
-    onCleanup(() => {
-      live = false;
+function loadRepository(force = false) {
+  const currentTab = tab.value;
+  if (!currentTab) return;
+  const cached = resource.value;
+  if (cached && (!force || cached.loading)) return;
+  const request: RepositoryResource = {
+    key: key.value,
+    data: cached?.data,
+    loading: true,
+  };
+  const store = (value: RepositoryResource) => {
+    resources.value = new Map(resources.value).set(currentTab.path, value);
+  };
+  store(request);
+  const isCurrent = () => !disposed && resources.value.get(currentTab.path) === request;
+  api
+    .repository(currentTab.path, currentTab.remotes, currentTab.limit)
+    .then((data) => {
+      if (isCurrent()) store({ key: request.key, data, loading: false });
+    })
+    .catch((err) => {
+      if (isCurrent()) store({ key: request.key, error: String(err), loading: false });
     });
-    const requestKey = key.value;
-    resource.value = {
-      key: requestKey,
-      data: resource.value.key === requestKey ? resource.value.data : undefined,
-      loading: true,
-    };
-    api
-      .repository(currentTab.path, currentTab.remotes, currentTab.limit)
-      .then((data) => {
-        if (live) resource.value = { key: requestKey, data, loading: false };
-      })
-      .catch((err) => {
-        if (live) resource.value = { key: requestKey, error: String(err), loading: false };
-      });
-  },
-  { immediate: true, flush: 'sync' },
-);
+}
+function reloadRepository() {
+  if (loading.value) return;
+  refresh.value++;
+  loadRepository(true);
+}
+watch(key, () => loadRepository(), { immediate: true, flush: 'sync' });
 
 watch(
   [snapshot, tab],
@@ -143,25 +159,6 @@ watch(
           (data.workingFiles.length ? 'worktree' : null));
     if (selection !== currentTab.selection)
       dispatch({ type: 'tab', path: currentTab.path, patch: { selection } });
-  },
-  { immediate: true },
-);
-
-watch(
-  () => tab.value?.path,
-  (path, _previous, onCleanup) => {
-    if (!path) return;
-    const onFocus = () => {
-      refresh.value++;
-    };
-    const interval = setInterval(() => {
-      if (!document.hidden) onFocus();
-    }, 30000);
-    window.addEventListener('focus', onFocus);
-    onCleanup(() => {
-      clearInterval(interval);
-      window.removeEventListener('focus', onFocus);
-    });
   },
   { immediate: true },
 );
@@ -292,7 +289,7 @@ function handleKeydown(e: KeyboardEvent) {
     !pathDialog.value &&
     !rename.value
   ) {
-    if (e.key.toLowerCase() === 'r') refresh.value++;
+    if (e.key.toLowerCase() === 'r') reloadRepository();
     if (e.key === '@' && data.headOid) select(data.headOid, true);
     if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
       e.preventDefault();
@@ -310,7 +307,10 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 onMounted(() => window.addEventListener('keydown', handleKeydown));
-onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+onUnmounted(() => {
+  disposed = true;
+  window.removeEventListener('keydown', handleKeydown);
+});
 </script>
 
 <template>
@@ -481,7 +481,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
             </div>
             <button
               :class="`soft-button refresh-button ${loading ? 'refreshing' : ''}`"
-              @click="() => (refresh = refresh + 1)"
+              @click="reloadRepository"
               :disabled="loading"
               title="重新整理（R）"
             >
@@ -517,7 +517,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
             <FolderGit2 :size="38" />
             <h2>{{ '專案暫時無法讀取' }}</h2>
             <p class="error-text">{{ error }}</p>
-            <button class="primary-button" @click="() => (refresh = refresh + 1)">
+            <button class="primary-button" @click="reloadRepository" :disabled="loading">
               {{ '重新嘗試' }}
             </button>
           </div></template
