@@ -11,3 +11,4 @@ src-tauri/gen/schemas/
 Thumbs.db
 test-results/
 playwright-report/
+e2e/**/*-snapshots/

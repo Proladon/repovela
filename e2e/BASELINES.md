@@ -1,5 +1,7 @@
 # 畫面基準
 
+基準圖片僅保留於本機，`*-snapshots/` 已由 `.gitignore` 排除，不提交至 Git。新 checkout 不含基準圖片，執行畫面比對前需先以 `npm run test:visual -- --update-snapshots` 建立並人工確認本機基準；新產生的圖片不代表下述 React 原始基準。
+
 `appearance.spec.ts-snapshots/` 的 20 張圖片於 2026-10-01、改寫前的 React 版本產生，原始碼 commit 為 `623cda05d8b75f4d6d3451f474c6f13ec55962d1`。Vue 遷移後保留這批圖片，沒有以 Vue 的畫面覆寫基準。
 
 環境：Windows x64、Playwright 1.63.0、Chromium 153.0.8010.12、zh-TW、Asia/Taipei、device scale factor 1。
