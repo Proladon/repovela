@@ -28,6 +28,14 @@ for (const viewport of [
     await page.getByRole('textbox', { name: '專案路徑' }).fill('demo://keifu');
     await page.getByRole('dialog').getByRole('button', { name: '加入專案', exact: true }).click();
     await expect(page.getByRole('heading', { name: headMessage, exact: true })).toBeVisible();
+    const author = page.locator(`#commit-${head} .commit-author`);
+    await expect(page.getByText('作者', { exact: true })).toBeVisible();
+    await expect(author).toHaveText(data.details[head].commit.author);
+    await expect(author).toHaveAttribute(
+      'title',
+      `${data.details[head].commit.author} <${data.details[head].commit.email}>`,
+    );
+    await expect(author).toBeInViewport({ ratio: 1 });
     await page.locator('.add-project').click();
     await page.getByRole('dialog').getByRole('button', { name: '加入專案', exact: true }).click();
     await page.getByRole('tab', { name: 'keifu', exact: true }).click();

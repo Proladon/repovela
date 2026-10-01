@@ -5,6 +5,7 @@ import App from './App.vue';
 import { flushPromises } from '@vue/test-utils';
 import type { Commit, CommitDetail, FilePatch, Snapshot } from './types';
 import { STORAGE_KEY } from './session';
+import { defaultPreferences, PREFERENCES_KEY } from './preferences';
 
 const mocked = vi.hoisted(() => ({
   repository: vi.fn(),
@@ -96,6 +97,13 @@ function saveProjects(active = '/a') {
 }
 
 beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
   localStorage.clear();
   vi.clearAllMocks();
   mocked.repository.mockImplementation(async (path: string) => snapshot(path));
@@ -112,9 +120,101 @@ beforeEach(() => {
   mocked.choose.mockResolvedValue(['/a', '/b']);
   Element.prototype.scrollIntoView = vi.fn();
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('偏好設定即時切換標籤配色與 HEAD 樣式，重設不改動已開啟分頁', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
+    const settings = screen.getByRole('region', { name: '偏好設定' });
+    await fireEvent.click(
+      within(settings).getByRole('checkbox', { name: /^分支標籤跟隨分支線顏色/ }),
+    );
+    await fireEvent.click(within(settings).getByRole('checkbox', { name: /^醒目顯示 HEAD 節點/ }));
+    await fireEvent.click(within(settings).getByRole('button', { name: '返回工作區' }));
+    const history = screen.getByRole('region', { name: 'Git 歷史' });
+    expect(history.querySelector('.branch-badge.follows-line')).not.toBeNull();
+    expect(history.querySelector('.graph-head-node')).toBeNull();
+    expect(history.querySelector('[aria-current="true"]')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).followBranchColor).toBe(true);
+    await fireEvent.keyDown(window, { key: ',', ctrlKey: true });
+    await fireEvent.click(screen.getByRole('button', { name: '還原預設設定' }));
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!)).toEqual(defaultPreferences);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(history.querySelector('.branch-badge.follows-line')).toBeNull();
+    expect(history.querySelector('.graph-head-node')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).tabs[0].selection).toBe(commits[1].oid);
+  });
+
+  it('載入已儲存的外觀設定，新分頁使用瀏覽預設值，既有分頁保留原設定', async () => {
+    saveProjects();
+    localStorage.setItem(
+      PREFERENCES_KEY,
+      JSON.stringify({
+        ...defaultPreferences,
+        fontSize: 18,
+        density: 'compact',
+        defaultRemotes: false,
+        defaultCommitLimit: 1000,
+      }),
+    );
+    mocked.choose.mockResolvedValue(['/c']);
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(document.querySelector('.commit-row .graph-svg')?.getAttribute('height')).toBe('61');
+    expect(mocked.repository).toHaveBeenCalledWith('/a', true, 500);
+    await fireEvent.click(screen.getByRole('button', { name: /加入專案 Ctrl O/ }));
+    await waitFor(() => expect(mocked.repository).toHaveBeenCalledWith('/c', false, 1000));
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(saved.tabs.find((t: { path: string }) => t.path === '/a').limit).toBe(500);
+  });
+
+  it('HEAD 節點持續醒目顯示，瀏覽其他 commit 不會移動標記，重新整理會跟隨 checkout', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const history = screen.getByRole('region', { name: 'Git 歷史' });
+    const headRow = history.querySelector(`#commit-${commits[0].oid}`)!;
+    const otherRow = history.querySelector(`#commit-${commits[1].oid}`)!;
+    expect(headRow.querySelector('.graph-head-node')).not.toBeNull();
+    expect(headRow.getAttribute('aria-current')).toBe('true');
+    expect(otherRow.classList.contains('selected')).toBe(true);
+    expect(otherRow.querySelector('.graph-head-node')).toBeNull();
+
+    await fireEvent.click(headRow);
+    await fireEvent.click(otherRow);
+    expect(history.querySelectorAll('.graph-head-node')).toHaveLength(1);
+    expect(headRow.querySelector('.graph-head-node')).not.toBeNull();
+
+    mocked.repository.mockImplementation(async (path: string) => {
+      const data = snapshot(path);
+      data.headOid = commits[1].oid;
+      data.head = null;
+      data.rows = data.rows.map((row) => ({ ...row, isHead: row.commit?.oid === commits[1].oid }));
+      return data;
+    });
+    await fireEvent.click(screen.getByRole('button', { name: '重新整理' }));
+    await waitFor(() => expect(otherRow.querySelector('.graph-head-node')).not.toBeNull());
+    expect(headRow.querySelector('.graph-head-node')).toBeNull();
+    expect(otherRow.getAttribute('aria-current')).toBe('true');
+    expect(history.querySelectorAll('.graph-head-node')).toHaveLength(1);
+  });
+
+  it('Git 歷史頂端不畫餘線，下一筆 commit 保留來自上一列的連線', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const history = screen.getByRole('region', { name: 'Git 歷史' });
+    const graphs = history.querySelectorAll('.commit-row .graph-svg');
+    expect(graphs[0].querySelector('path')?.getAttribute('d')).toBe('M18 26 V52');
+    expect(graphs[1].querySelector('path')?.getAttribute('d')).toBe('M18 0 V52');
+  });
+
   it('首次切換才載入各分頁，之後切換直接顯示快取的歷史', async () => {
     saveProjects();
     render(App);
@@ -207,7 +307,7 @@ describe('桌面分頁與瀏覽互動', () => {
     await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
     await waitFor(() => expect(mocked.repository).toHaveBeenCalledWith('/a', true, 500));
     await screen.findByRole('heading', { name: '加入專案管理' });
-    await fireEvent.click(screen.getByRole('button', { name: /初始版本 作者 B/ }));
+    await fireEvent.click(screen.getByRole('button', { name: /初始版本.*作者 B/ }));
     await screen.findByRole('heading', { name: '初始版本' });
     await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
     await screen.findByRole('heading', { name: '加入專案管理' });
@@ -409,7 +509,7 @@ describe('桌面分頁與瀏覽互動', () => {
     );
     render(App);
     await waitFor(() => expect(mocked.commit).toHaveBeenCalledWith('/a', commits[1].oid));
-    await fireEvent.click(screen.getByRole('button', { name: /加入專案管理 作者 A/ }));
+    await fireEvent.click(screen.getByRole('button', { name: /加入專案管理.*作者 A/ }));
     await screen.findByRole('heading', { name: '加入專案管理' });
     resolveCommit(detail(commits[1].oid));
     await flushPromises();

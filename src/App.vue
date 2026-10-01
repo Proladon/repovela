@@ -4,11 +4,13 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  CircleHelp,
   FolderGit2,
   FolderOpen,
   GitBranch,
   GitCommitHorizontal,
   Layers3,
+  PanelRightOpen,
   Pin,
   Plus,
   RefreshCw,
@@ -18,13 +20,27 @@ import {
 } from 'lucide-vue-next';
 import { api, chooseProjects, demo, native } from './api';
 import Detail from './Detail.vue';
+import ColumnHeading from './ColumnHeading.vue';
+import PreferencesPage from './Preferences.vue';
+import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
+import { graphColor } from './graph';
 import Graph from './Graph.vue';
 import ProjectItem from './ProjectItem.vue';
 import { emptySession, restoreSession, sessionReducer, STORAGE_KEY } from './session';
 import type { Action, Tab } from './session';
-import type { Snapshot } from './types';
+import type { Row, Snapshot } from './types';
 
 const storageKey = demo ? `${STORAGE_KEY}-demo` : STORAGE_KEY;
+const preferencesStorageKey = demo ? `${PREFERENCES_KEY}-demo` : PREFERENCES_KEY;
+const preferences = shallowRef(
+  (() => {
+    try {
+      return restorePreferences(localStorage.getItem(preferencesStorageKey));
+    } catch {
+      return { ...defaultPreferences };
+    }
+  })(),
+);
 const session = shallowRef(
   (() => {
     try {
@@ -35,7 +51,21 @@ const session = shallowRef(
   })(),
 );
 const dispatch = (action: Action) => {
-  const next = sessionReducer(session.value, action);
+  let next = sessionReducer(session.value, action);
+  if (action.type === 'add' || action.type === 'open') {
+    next = {
+      ...next,
+      tabs: next.tabs.map((t) =>
+        session.value.tabs.some((previous) => previous.path === t.path)
+          ? t
+          : {
+              ...t,
+              remotes: preferences.value.defaultRemotes,
+              limit: preferences.value.defaultCommitLimit,
+            },
+      ),
+    };
+  }
   for (const previousTab of session.value.tabs) {
     if (!next.tabs.some((t) => t.path === previousTab.path)) {
       const remaining = new Map(resources.value);
@@ -65,7 +95,37 @@ const rename = ref<{ path: string; name: string } | null>(null);
 const branchMenu = ref(false);
 const branchQuery = ref('');
 const help = ref(false);
+const settingsOpen = ref(false);
+const settingsButton = ref<HTMLButtonElement | null>(null);
+const fontScale = computed(() => preferences.value.fontSize / 13);
+const rowHeight = computed(() =>
+  Math.max(44, Math.round((preferences.value.density === 'compact' ? 44 : 52) * fontScale.value)),
+);
+const connectorHeight = computed(() => Math.round(18 * fontScale.value));
+const appearanceStyle = computed(() => ({
+  '--font-scale': fontScale.value,
+  '--ui-font-family': fontStack(
+    preferences.value.fontFamily,
+    "Inter, 'Segoe UI', 'Noto Sans TC', sans-serif",
+  ),
+  '--code-font-family': fontStack(preferences.value.codeFontFamily, 'Consolas, monospace'),
+  '--commit-row-height': `${rowHeight.value}px`,
+  '--connector-row-height': `${connectorHeight.value}px`,
+  '--commit-text-padding':
+    preferences.value.density === 'compact' ? '5px 12px 4px' : '9px 12px 6px',
+}));
+function branchStyle(row: Row) {
+  return {
+    '--branch-color': graphColor(row.cells.find((cell) => cell.kind === 'commit')?.color ?? 9),
+  };
+}
 const historyRef = ref<HTMLDivElement | null>(null);
+const workspaceRef = ref<HTMLDivElement | null>(null);
+const detailVisible = ref(true);
+const showDetailRef = ref<HTMLButtonElement | null>(null);
+const detailWidth = ref(100 / 2.14);
+const resizingDetail = ref(false);
+let detailDrag: { pointerId: number; startX: number; startWidth: number } | null = null;
 const scrollPositions: Record<string, number> = {};
 const tab = computed(() => session.value.tabs.find((t) => t.path === session.value.active));
 const project = computed(() => session.value.projects.find((p) => p.path === session.value.active));
@@ -77,6 +137,43 @@ const resource = computed(() => {
   return cached?.key === key.value ? cached : undefined;
 });
 const snapshot = computed(() => resource.value?.data);
+type HistoryColumn = 'graph' | 'message' | 'time' | 'author';
+const columnWidths = ref<Record<HistoryColumn, number | null>>({
+  graph: null,
+  message: null,
+  time: null,
+  author: null,
+});
+const graphWidth = computed(() => ((snapshot.value?.maxLane ?? 0) + 1) * 20 + 16);
+const historyColumns = computed(() => [
+  {
+    key: 'graph' as const,
+    label: '圖譜',
+    min: graphWidth.value,
+    max: Math.max(600, graphWidth.value),
+  },
+  { key: 'message' as const, label: 'Commit 訊息', min: 120 * fontScale.value, max: 1600 },
+  { key: 'time' as const, label: '時間', min: 72 * fontScale.value, max: 320 },
+  { key: 'author' as const, label: '作者', min: 90 * fontScale.value, max: 480 },
+]);
+const historyTableStyle = computed(() => {
+  const graph = Math.max(graphWidth.value, columnWidths.value.graph ?? graphWidth.value);
+  const minMessage = 120 * fontScale.value;
+  const message =
+    columnWidths.value.message === null ? null : Math.max(minMessage, columnWidths.value.message);
+  const defaultTime =
+    (preferences.value.dateFormat === 'full' ? 120 : 80) +
+    (preferences.value.use24HourTime ? 0 : 28);
+  const time = Math.max(
+    72 * fontScale.value,
+    columnWidths.value.time ?? defaultTime * fontScale.value,
+  );
+  const author = Math.max(90 * fontScale.value, columnWidths.value.author ?? 112 * fontScale.value);
+  return {
+    '--history-columns': `${graph}px ${message === null ? `minmax(${minMessage}px, 1fr)` : `${message}px`} ${time}px ${author}px`,
+    '--history-min-width': `${graph + (message ?? minMessage) + time + author + 21}px`,
+  };
+});
 const error = computed(() => resource.value?.error);
 const loading = computed(() => !!tab.value && (!resource.value || resource.value.loading));
 const query = computed(() => (tab.value ? (queries.value[tab.value.path] ?? '') : ''));
@@ -100,8 +197,42 @@ const visibleProjects = computed(() =>
   ),
 );
 const displayDate = (date: string) =>
-  new Date(date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+  new Date(date).toLocaleDateString('zh-TW', {
+    ...(preferences.value.dateFormat === 'full' ? { year: 'numeric' as const } : {}),
+    month: '2-digit',
+    day: '2-digit',
+  });
+const displayTime = (date: string) =>
+  new Date(date).toLocaleTimeString('zh-TW', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: !preferences.value.use24HourTime,
+  });
 const vAutofocus = { mounted: (element: HTMLInputElement) => element.focus() };
+watch(
+  preferences,
+  (value) => {
+    try {
+      localStorage.setItem(preferencesStorageKey, JSON.stringify(value));
+    } catch {
+      message.value = '無法儲存偏好設定，設定僅在本次使用期間生效。';
+    }
+  },
+  { immediate: true },
+);
+function openPreferences() {
+  help.value = false;
+  pathDialog.value = false;
+  rename.value = null;
+  branchMenu.value = false;
+  projectMenu.value = null;
+  settingsOpen.value = true;
+}
+async function closePreferences() {
+  settingsOpen.value = false;
+  await nextTick();
+  settingsButton.value?.focus();
+}
 
 watch(
   session,
@@ -177,11 +308,52 @@ watch(
 
 function select(oid: string, scroll = false) {
   if (!tab.value) return;
+  detailVisible.value = true;
   dispatch({ type: 'tab', path: tab.value.path, patch: { selection: oid } });
   if (scroll)
     requestAnimationFrame(() => {
       document.getElementById(`commit-${oid}`)?.scrollIntoView({ block: 'nearest' });
     });
+}
+function resizeDetail(width: number) {
+  const available = workspaceRef.value?.getBoundingClientRect().width;
+  if (!available) return;
+  const min = Math.min(280, available / 2);
+  const max = available - Math.min(320, available / 2);
+  detailWidth.value = (Math.max(min, Math.min(max, width)) / available) * 100;
+}
+function startDetailResize(event: PointerEvent) {
+  if (event.button !== 0 || !workspaceRef.value) return;
+  const handle = event.currentTarget as HTMLElement;
+  detailDrag = {
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startWidth: handle.parentElement!.getBoundingClientRect().width,
+  };
+  handle.setPointerCapture(event.pointerId);
+  resizingDetail.value = true;
+  event.preventDefault();
+}
+function moveDetailResize(event: PointerEvent) {
+  if (detailDrag?.pointerId !== event.pointerId) return;
+  resizeDetail(detailDrag.startWidth + detailDrag.startX - event.clientX);
+}
+function stopDetailResize() {
+  detailDrag = null;
+  resizingDetail.value = false;
+}
+async function closeDetail() {
+  stopDetailResize();
+  detailVisible.value = false;
+  await nextTick();
+  showDetailRef.value?.focus();
+}
+function resizeDetailByKey(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight'].includes(event.key) || !workspaceRef.value) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const width = (event.currentTarget as HTMLElement).parentElement!.getBoundingClientRect().width;
+  resizeDetail(width + (event.key === 'ArrowLeft' ? 20 : -20));
 }
 function updateTab(patch: Partial<Omit<Tab, 'path'>>) {
   if (tab.value) dispatch({ type: 'tab', path: tab.value.path, patch });
@@ -244,6 +416,19 @@ async function addProject() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if ((e.ctrlKey || e.metaKey) && e.key === ',') {
+    e.preventDefault();
+    if (settingsOpen.value) void closePreferences();
+    else openPreferences();
+    return;
+  }
+  if (settingsOpen.value) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      void closePreferences();
+    }
+    return;
+  }
   const currentTab = tab.value;
   const data = snapshot.value;
   const editing =
@@ -314,7 +499,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div
+    class="app-shell"
+    :style="appearanceStyle"
+    :class="{ 'hide-column-dividers': !preferences.showColumnDividers }"
+  >
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark"><GitBranch :size="22" /></div>
@@ -379,313 +568,411 @@ onUnmounted(() => {
       <div class="sidebar-bottom">
         <span class="status-dot" />{{ '本機・唯讀'
         }}<button
+          ref="settingsButton"
+          class="icon-button"
+          title="偏好設定（Ctrl ,）"
+          aria-label="偏好設定"
+          @click="openPreferences"
+        >
+          <Settings2 :size="16" /></button
+        ><button
           class="icon-button"
           title="快捷鍵與關於"
           aria-label="快捷鍵與關於"
           @click="() => (help = true)"
         >
-          <Settings2 :size="16" />
+          <CircleHelp :size="16" />
         </button>
       </div>
     </aside>
     <main class="main">
-      <div class="tabs" role="tablist" aria-label="專案分頁">
-        <template v-for="t in session.tabs" :key="t.path"
-          ><div :class="`tab ${session.active === t.path ? 'selected' : ''}`">
-            <button
-              role="tab"
-              :aria-selected="session.active === t.path"
-              :title="t.path"
-              @click="
-                () =>
-                  dispatch({
-                    type: 'activate',
-                    path: t.path,
-                  })
-              "
-            >
-              <FolderGit2 :size="14" /><span>{{
-                session.projects.find((p) => p.path === t.path)?.name
-              }}</span></button
-            ><button
-              class="tab-close icon-button"
-              :aria-label="`關閉 ${session.projects.find((p) => p.path === t.path)?.name} 分頁`"
-              @click="
-                () =>
-                  dispatch({
-                    type: 'close',
-                    path: t.path,
-                  })
-              "
-            >
-              <X :size="13" />
-            </button></div></template
-        ><button
-          class="new-tab icon-button"
-          title="加入專案"
-          aria-label="加入專案分頁"
-          @click="() => void addProject()"
-        >
-          <Plus :size="17" /></button
-        ><span class="tab-spacer" /><span class="session-label">{{
-          demo ? '展示模式' : '自動還原分頁'
-        }}</span>
-      </div>
-      <template v-if="demo"
-        ><div class="demo-banner">
-          {{ '展示模式：範例資料僅供預覽，不會讀取你的電腦。' }}
-        </div></template
-      ><template v-if="tab && project"
-        ><div class="toolbar">
-          <div class="repo-title">
-            <FolderGit2 :size="20" />
-            <div>
-              <h1>{{ project.name }}</h1>
-              <span :title="project.path">{{ project.path }}</span>
+      <PreferencesPage
+        v-if="settingsOpen"
+        v-model="preferences"
+        @close="closePreferences"
+        @reset="preferences = { ...defaultPreferences }"
+      />
+      <div v-show="!settingsOpen" class="main-content">
+        <div class="tabs" role="tablist" aria-label="專案分頁">
+          <template v-for="t in session.tabs" :key="t.path"
+            ><div :class="`tab ${session.active === t.path ? 'selected' : ''}`">
+              <button
+                role="tab"
+                :aria-selected="session.active === t.path"
+                :title="t.path"
+                @click="
+                  () =>
+                    dispatch({
+                      type: 'activate',
+                      path: t.path,
+                    })
+                "
+              >
+                <FolderGit2 :size="14" /><span>{{
+                  session.projects.find((p) => p.path === t.path)?.name
+                }}</span></button
+              ><button
+                class="tab-close icon-button"
+                :aria-label="`關閉 ${session.projects.find((p) => p.path === t.path)?.name} 分頁`"
+                @click="
+                  () =>
+                    dispatch({
+                      type: 'close',
+                      path: t.path,
+                    })
+                "
+              >
+                <X :size="13" />
+              </button></div></template
+          ><button
+            class="new-tab icon-button"
+            title="加入專案"
+            aria-label="加入專案分頁"
+            @click="() => void addProject()"
+          >
+            <Plus :size="17" /></button
+          ><span class="tab-spacer" /><span class="session-label">{{
+            demo ? '展示模式' : '自動還原分頁'
+          }}</span>
+        </div>
+        <template v-if="demo"
+          ><div class="demo-banner">
+            {{ '展示模式：範例資料僅供預覽，不會讀取你的電腦。' }}
+          </div></template
+        ><template v-if="tab && project"
+          ><div class="toolbar">
+            <div class="repo-title">
+              <FolderGit2 :size="20" />
+              <div>
+                <h1>{{ project.name }}</h1>
+                <span :title="project.path">{{ project.path }}</span>
+              </div>
+            </div>
+            <div class="toolbar-actions">
+              <div class="branch-picker">
+                <button
+                  class="soft-button"
+                  @click="() => (branchMenu = !branchMenu)"
+                  :disabled="!snapshot"
+                >
+                  <GitBranch :size="14" /><span>{{ snapshot?.head ?? '尚無 commit' }}</span
+                  ><ChevronDown :size="13" /></button
+                ><template v-if="branchMenu && snapshot"
+                  ><div class="dismiss" @click="() => (branchMenu = false)" />
+                  <div class="branch-menu popover">
+                    <label
+                      ><Search :size="14" /><input
+                        v-autofocus
+                        :value="branchQuery"
+                        @input="(e) => (branchQuery = (e.target as HTMLInputElement).value)"
+                        placeholder="跳至分支（不切換分支）"
+                        aria-label="搜尋分支"
+                    /></label>
+                    <div class="branch-list">
+                      <template
+                        v-for="b in snapshot.branches.filter((b) =>
+                          b.name.toLowerCase().includes(branchQuery.toLowerCase()),
+                        )"
+                        :key="b.name"
+                        ><button @click="jumpBranch(b.oid)">
+                          <GitBranch :size="13" /><span>{{ b.name }}</span
+                          ><small>{{ b.isHead ? 'HEAD' : b.isRemote ? '遠端' : '' }}</small>
+                        </button></template
+                      >
+                    </div>
+                  </div></template
+                >
+              </div>
+              <button
+                :class="`soft-button refresh-button ${loading ? 'refreshing' : ''}`"
+                @click="reloadRepository"
+                :disabled="loading"
+                title="重新整理（R）"
+              >
+                <RefreshCw :size="14" /><span>{{ '重新整理' }}</span>
+              </button>
             </div>
           </div>
-          <div class="toolbar-actions">
-            <div class="branch-picker">
-              <button
-                class="soft-button"
-                @click="() => (branchMenu = !branchMenu)"
-                :disabled="!snapshot"
+          <div class="repo-meta">
+            <span
+              ><GitBranch :size="12" />{{
+                snapshot?.branches.filter((b) => !b.isRemote).length ?? '—'
+              }}<!---->{{ ' 個本機分支' }}</span
+            ><span
+              ><GitCommitHorizontal :size="13" />{{ snapshot?.commitCount ?? '—' }}<!---->{{
+                ' 筆 commit'
+              }}</span
+            ><template v-if="snapshot?.upstream"
+              ><span :title="snapshot.upstream"
+                ><ArrowUp :size="12" />{{ snapshot.ahead }}<ArrowDown :size="12" />{{
+                  snapshot.behind
+                }}</span
+              ></template
+            ><span class="meta-spacer" /><label
+              ><input
+                type="checkbox"
+                :checked="tab.remotes"
+                @change="updateTab({ remotes: ($event.target as HTMLInputElement).checked })"
+              />{{ '顯示遠端分支' }}</label
+            >
+          </div>
+          <template v-if="error"
+            ><div class="main-empty">
+              <FolderGit2 :size="38" />
+              <h2>{{ '專案暫時無法讀取' }}</h2>
+              <p class="error-text">{{ error }}</p>
+              <button class="primary-button" @click="reloadRepository" :disabled="loading">
+                {{ '重新嘗試' }}
+              </button>
+            </div></template
+          ><template v-else
+            ><template v-if="!snapshot"
+              ><div class="main-empty">
+                <div class="spinner" />
+                <p>{{ '正在讀取 Git 歷史…' }}</p>
+              </div></template
+            ><template v-else
+              ><div
+                ref="workspaceRef"
+                class="workspace"
+                :class="{ 'detail-hidden': !detailVisible, 'resizing-detail': resizingDetail }"
+                :style="{ '--detail-width': `${detailWidth}%` }"
               >
-                <GitBranch :size="14" /><span>{{ snapshot?.head ?? '尚無 commit' }}</span
-                ><ChevronDown :size="13" /></button
-              ><template v-if="branchMenu && snapshot"
-                ><div class="dismiss" @click="() => (branchMenu = false)" />
-                <div class="branch-menu popover">
-                  <label
-                    ><Search :size="14" /><input
-                      v-autofocus
-                      :value="branchQuery"
-                      @input="(e) => (branchQuery = (e.target as HTMLInputElement).value)"
-                      placeholder="跳至分支（不切換分支）"
-                      aria-label="搜尋分支"
-                  /></label>
-                  <div class="branch-list">
-                    <template
-                      v-for="b in snapshot.branches.filter((b) =>
-                        b.name.toLowerCase().includes(branchQuery.toLowerCase()),
-                      )"
-                      :key="b.name"
-                      ><button @click="jumpBranch(b.oid)">
-                        <GitBranch :size="13" /><span>{{ b.name }}</span
-                        ><small>{{ b.isHead ? 'HEAD' : b.isRemote ? '遠端' : '' }}</small>
+                <section class="history-panel" aria-label="Git 歷史">
+                  <div class="panel-heading">
+                    <span>{{ 'Commit 歷史' }}</span
+                    ><span class="subtle">{{ '所有分支' }}</span>
+                    <button
+                      v-if="!detailVisible"
+                      ref="showDetailRef"
+                      class="icon-button"
+                      title="顯示詳細資訊"
+                      aria-label="顯示詳細資訊"
+                      aria-controls="commit-detail"
+                      @click="detailVisible = true"
+                    >
+                      <PanelRightOpen :size="16" />
+                    </button>
+                  </div>
+                  <label class="history-search"
+                    ><Search :size="15" /><input
+                      id="history-search"
+                      placeholder="搜尋訊息、作者、SHA 或分支"
+                      aria-label="搜尋 commit"
+                      :value="query"
+                      @input="setQuery(($event.target as HTMLInputElement).value)"
+                      @keydown="jumpSearch"
+                    /><template v-if="query"
+                      ><small>{{ matches.length }}<!---->{{ ' 筆' }}</small
+                      ><button class="icon-button" aria-label="清除搜尋" @click="setQuery('')">
+                        <X :size="13" /></button></template
+                    ><template v-else
+                      ><kbd>{{ 'Ctrl F' }}</kbd></template
+                    ></label
+                  >
+                  <div class="history-scroll" ref="historyRef" @scroll="rememberScroll">
+                    <button
+                      id="commit-worktree"
+                      :class="`working-row ${tab.selection === 'worktree' ? 'selected' : ''}`"
+                      @click="() => select('worktree')"
+                    >
+                      <div class="worktree-icon"><Layers3 :size="17" /></div>
+                      <div>
+                        <strong>{{ '工作區' }}</strong
+                        ><span>{{
+                          snapshot.workingFiles.length
+                            ? `${snapshot.workingFiles.length} 個檔案尚未提交`
+                            : '工作目錄乾淨'
+                        }}</span>
+                      </div>
+                      <span class="count">{{ snapshot.workingFiles.length }}</span>
+                    </button>
+                    <div class="history-table" :style="historyTableStyle">
+                      <div class="history-columns">
+                        <ColumnHeading
+                          v-for="column in historyColumns"
+                          :key="column.key"
+                          :label="column.label"
+                          :min="column.min"
+                          :max="column.max"
+                          @resize="columnWidths[column.key] = $event"
+                          @reset="columnWidths[column.key] = null"
+                        />
+                      </div>
+                      <template
+                        v-for="(row, i) in snapshot.rows"
+                        :key="row.commit ? row.commit.oid : `connector-${i}`"
+                        ><template v-if="row.commit"
+                          ><button
+                            :id="`commit-${row.commit.oid}`"
+                            :aria-current="row.isHead ? 'true' : undefined"
+                            :class="`commit-row ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
+                            @click="() => select(row.commit!.oid)"
+                          >
+                            <Graph
+                              :cells="row.cells"
+                              :previous-cells="snapshot.rows[i - 1]?.cells"
+                              :lanes="snapshot.maxLane"
+                              :connector="false"
+                              :is-head="row.isHead && preferences.highlightHead"
+                              :row-height="rowHeight"
+                            />
+                            <div class="commit-text">
+                              <div class="commit-subject">
+                                <template v-if="row.isHead"
+                                  ><span class="head-badge">{{ 'HEAD' }}</span></template
+                                ><template v-for="b in row.branches" :key="b"
+                                  ><span
+                                    class="branch-badge"
+                                    :class="{ 'follows-line': preferences.followBranchColor }"
+                                    :style="branchStyle(row)"
+                                    >{{ b }}</span
+                                  ></template
+                                ><template v-for="t in row.tags" :key="t"
+                                  ><span
+                                    class="tag-badge"
+                                    :class="{ 'follows-line': preferences.followTagColor }"
+                                    :style="branchStyle(row)"
+                                    >{{ t }}</span
+                                  ></template
+                                ><strong :title="row.commit.message">{{
+                                  row.commit.message || '（無 commit 訊息）'
+                                }}</strong>
+                              </div>
+                              <div class="commit-caption">
+                                <code>{{ row.commit.shortId }}</code>
+                              </div>
+                            </div>
+                            <time
+                              class="commit-time"
+                              :datetime="row.commit.date"
+                              :title="new Date(row.commit.date).toLocaleString('zh-TW')"
+                            >
+                              <span>{{ displayDate(row.commit.date) }}</span>
+                              <small>{{ displayTime(row.commit.date) }}</small>
+                            </time>
+                            <span
+                              class="commit-author"
+                              :title="`${row.commit.author} <${row.commit.email}>`"
+                              ><span class="column-value">{{
+                                row.commit.author || '（未提供作者）'
+                              }}</span></span
+                            >
+                          </button></template
+                        ><template v-else
+                          ><div class="connector-row">
+                            <Graph
+                              :cells="row.cells"
+                              :previous-cells="snapshot.rows[i - 1]?.cells"
+                              :lanes="snapshot.maxLane"
+                              :connector="true"
+                              :connector-height="connectorHeight"
+                            />
+                            <span class="connector-cell" />
+                            <span class="connector-cell" />
+                            <span class="connector-cell" /></div></template
+                      ></template>
+                    </div>
+                    <template v-if="!snapshot.commitCount"
+                      ><div class="history-empty">
+                        <GitCommitHorizontal :size="27" />
+                        <p>{{ '這個專案還沒有 commit。' }}</p>
+                      </div></template
+                    ><template v-if="snapshot.hasMore"
+                      ><button
+                        class="load-more"
+                        :disabled="tab.limit >= 5000 || loading"
+                        @click="loadMore"
+                      >
+                        {{ tab.limit >= 5000 ? '已顯示前 5,000 筆紀錄' : '載入更多紀錄' }}
                       </button></template
                     >
                   </div>
-                </div></template
-              >
-            </div>
-            <button
-              :class="`soft-button refresh-button ${loading ? 'refreshing' : ''}`"
-              @click="reloadRepository"
-              :disabled="loading"
-              title="重新整理（R）"
-            >
-              <RefreshCw :size="14" /><span>{{ '重新整理' }}</span>
-            </button>
-          </div>
-        </div>
-        <div class="repo-meta">
-          <span
-            ><GitBranch :size="12" />{{
-              snapshot?.branches.filter((b) => !b.isRemote).length ?? '—'
-            }}<!---->{{ ' 個本機分支' }}</span
-          ><span
-            ><GitCommitHorizontal :size="13" />{{ snapshot?.commitCount ?? '—' }}<!---->{{
-              ' 筆 commit'
+                </section>
+                <div v-show="detailVisible" class="detail-container" id="commit-detail">
+                  <div
+                    class="detail-resizer"
+                    role="separator"
+                    aria-label="調整詳細資訊寬度"
+                    aria-orientation="vertical"
+                    aria-controls="commit-detail"
+                    :aria-valuenow="Math.round(detailWidth)"
+                    :aria-valuemin="0"
+                    :aria-valuemax="100"
+                    :aria-valuetext="`${Math.round(detailWidth)}%`"
+                    tabindex="0"
+                    @pointerdown="startDetailResize"
+                    @pointermove="moveDetailResize"
+                    @pointerup="stopDetailResize"
+                    @pointercancel="stopDetailResize"
+                    @lostpointercapture="stopDetailResize"
+                    @keydown="resizeDetailByKey"
+                  />
+                  <Detail
+                    :key="tab.path"
+                    :path="tab.path"
+                    :selection="tab.selection"
+                    :snapshot="snapshot"
+                    :revision="refresh"
+                    @close="closeDetail"
+                  />
+                </div></div></template
+          ></template>
+          <footer class="status-bar">
+            <span class="status-dot" /><span>{{
+              loading ? '正在更新…' : error ? '讀取失敗' : '已同步本機資料'
             }}</span
-          ><template v-if="snapshot?.upstream"
-            ><span :title="snapshot.upstream"
-              ><ArrowUp :size="12" />{{ snapshot.ahead }}<ArrowDown :size="12" />{{
-                snapshot.behind
-              }}</span
-            ></template
-          ><span class="meta-spacer" /><label
-            ><input
-              type="checkbox"
-              :checked="tab.remotes"
-              @change="updateTab({ remotes: ($event.target as HTMLInputElement).checked })"
-            />{{ '顯示遠端分支' }}</label
-          >
-        </div>
-        <template v-if="error"
-          ><div class="main-empty">
-            <FolderGit2 :size="38" />
-            <h2>{{ '專案暫時無法讀取' }}</h2>
-            <p class="error-text">{{ error }}</p>
-            <button class="primary-button" @click="reloadRepository" :disabled="loading">
-              {{ '重新嘗試' }}
-            </button>
-          </div></template
+            ><span class="meta-spacer" /><span>{{ 'j / k 瀏覽' }}</span
+            ><span>{{ '@ 跳至 HEAD' }}</span
+            ><span>{{ 'Ctrl Tab 切換專案' }}</span>
+          </footer></template
         ><template v-else
-          ><template v-if="!snapshot"
-            ><div class="main-empty">
-              <div class="spinner" />
-              <p>{{ '正在讀取 Git 歷史…' }}</p>
-            </div></template
-          ><template v-else
-            ><div class="workspace">
-              <section class="history-panel" aria-label="Git 歷史">
-                <div class="panel-heading">
-                  <span>{{ 'Commit 歷史' }}</span
-                  ><span class="subtle">{{ '所有分支' }}</span>
-                </div>
-                <label class="history-search"
-                  ><Search :size="15" /><input
-                    id="history-search"
-                    placeholder="搜尋訊息、作者、SHA 或分支"
-                    aria-label="搜尋 commit"
-                    :value="query"
-                    @input="setQuery(($event.target as HTMLInputElement).value)"
-                    @keydown="jumpSearch"
-                  /><template v-if="query"
-                    ><small>{{ matches.length }}<!---->{{ ' 筆' }}</small
-                    ><button class="icon-button" aria-label="清除搜尋" @click="setQuery('')">
-                      <X :size="13" /></button></template
-                  ><template v-else
-                    ><kbd>{{ 'Ctrl F' }}</kbd></template
-                  ></label
-                >
-                <div class="history-scroll" ref="historyRef" @scroll="rememberScroll">
-                  <button
-                    id="commit-worktree"
-                    :class="`working-row ${tab.selection === 'worktree' ? 'selected' : ''}`"
-                    @click="() => select('worktree')"
-                  >
-                    <div class="worktree-icon"><Layers3 :size="17" /></div>
-                    <div>
-                      <strong>{{ '工作區' }}</strong
-                      ><span>{{
-                        snapshot.workingFiles.length
-                          ? `${snapshot.workingFiles.length} 個檔案尚未提交`
-                          : '工作目錄乾淨'
-                      }}</span>
-                    </div>
-                    <span class="count">{{ snapshot.workingFiles.length }}</span>
-                  </button>
-                  <div class="history-table">
-                    <template
-                      v-for="(row, i) in snapshot.rows"
-                      :key="row.commit ? row.commit.oid : `connector-${i}`"
-                      ><template v-if="row.commit"
-                        ><button
-                          :id="`commit-${row.commit.oid}`"
-                          :class="`commit-row ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
-                          @click="() => select(row.commit!.oid)"
-                        >
-                          <Graph :cells="row.cells" :lanes="snapshot.maxLane" :connector="false" />
-                          <div class="commit-text">
-                            <div class="commit-subject">
-                              <template v-if="row.isHead"
-                                ><span class="head-badge">{{ 'HEAD' }}</span></template
-                              ><template v-for="b in row.branches" :key="b"
-                                ><span class="branch-badge">{{ b }}</span></template
-                              ><template v-for="t in row.tags" :key="t"
-                                ><span class="tag-badge">{{ t }}</span></template
-                              ><strong :title="row.commit.message">{{
-                                row.commit.message || '（無 commit 訊息）'
-                              }}</strong>
-                            </div>
-                            <div class="commit-caption">
-                              <span>{{ row.commit.author }}</span
-                              ><code>{{ row.commit.shortId }}</code
-                              ><time :datetime="row.commit.date">{{
-                                displayDate(row.commit.date)
-                              }}</time>
-                            </div>
-                          </div>
-                        </button></template
-                      ><template v-else
-                        ><div class="connector-row">
-                          <Graph
-                            :cells="row.cells"
-                            :lanes="snapshot.maxLane"
-                            :connector="true"
-                          /></div></template
-                    ></template>
-                  </div>
-                  <template v-if="!snapshot.commitCount"
-                    ><div class="history-empty">
-                      <GitCommitHorizontal :size="27" />
-                      <p>{{ '這個專案還沒有 commit。' }}</p>
-                    </div></template
-                  ><template v-if="snapshot.hasMore"
-                    ><button
-                      class="load-more"
-                      :disabled="tab.limit >= 5000 || loading"
-                      @click="loadMore"
-                    >
-                      {{ tab.limit >= 5000 ? '已顯示前 5,000 筆紀錄' : '載入更多紀錄' }}
-                    </button></template
-                  >
-                </div>
-              </section>
-              <Detail
-                :key="tab.path"
-                :path="tab.path"
-                :selection="tab.selection"
-                :snapshot="snapshot"
-                :revision="refresh"
-              /></div></template
-        ></template>
-        <footer class="status-bar">
-          <span class="status-dot" /><span>{{
-            loading ? '正在更新…' : error ? '讀取失敗' : '已同步本機資料'
-          }}</span
-          ><span class="meta-spacer" /><span>{{ 'j / k 瀏覽' }}</span
-          ><span>{{ '@ 跳至 HEAD' }}</span
-          ><span>{{ 'Ctrl Tab 切換專案' }}</span>
-        </footer></template
-      ><template v-else
-        ><div class="onboarding">
-          <div class="onboarding-graphic">
-            <div class="orbit one" />
-            <div class="orbit two" />
-            <div class="welcome-icon"><FolderGit2 :size="40" /></div>
-            <span class="floating-node n1" /><span class="floating-node n2" /><span
-              class="floating-node n3"
-            />
-          </div>
-          <span class="eyebrow">{{ 'YOUR REPOSITORIES, TOGETHER' }}</span>
-          <h1>{{ '所有專案，一個工作空間。' }}</h1>
-          <p>
-            {{ '把常用的 Git 專案放進來，用分頁自在切換。' }}<br />{{
-              '重新開啟時，從上次停下的地方繼續。'
-            }}
-          </p>
-          <button class="primary-button" @click="() => void addProject()">
-            <Plus :size="17" />{{
-              session.projects.length ? '加入其他專案' : '加入第一個專案'
-            }}</button
-          ><template v-if="!!session.projects.length"
-            ><button
-              class="text-button"
-              @click="
-                () =>
-                  session.projects.forEach((p) =>
-                    dispatch({
-                      type: 'open',
-                      path: p.path,
-                    }),
-                  )
-              "
-            >
-              {{ '開啟所有專案' }}
-            </button></template
-          ><button class="text-button" @click="() => (pathDialog = true)">
-            {{ '貼上專案路徑' }}
-          </button>
-          <div class="welcome-features">
-            <span><FolderOpen :size="15" />{{ '專案收藏' }}</span
-            ><span><Layers3 :size="15" />{{ '多專案分頁' }}</span
-            ><span><GitBranch :size="15" />{{ '清晰的 Git 圖譜' }}</span>
-          </div>
-        </div></template
-      >
+          ><div class="onboarding">
+            <div class="onboarding-graphic">
+              <div class="orbit one" />
+              <div class="orbit two" />
+              <div class="welcome-icon"><FolderGit2 :size="40" /></div>
+              <span class="floating-node n1" /><span class="floating-node n2" /><span
+                class="floating-node n3"
+              />
+            </div>
+            <span class="eyebrow">{{ 'YOUR REPOSITORIES, TOGETHER' }}</span>
+            <h1>{{ '所有專案，一個工作空間。' }}</h1>
+            <p>
+              {{ '把常用的 Git 專案放進來，用分頁自在切換。' }}<br />{{
+                '重新開啟時，從上次停下的地方繼續。'
+              }}
+            </p>
+            <button class="primary-button" @click="() => void addProject()">
+              <Plus :size="17" />{{
+                session.projects.length ? '加入其他專案' : '加入第一個專案'
+              }}</button
+            ><template v-if="!!session.projects.length"
+              ><button
+                class="text-button"
+                @click="
+                  () =>
+                    session.projects.forEach((p) =>
+                      dispatch({
+                        type: 'open',
+                        path: p.path,
+                      }),
+                    )
+                "
+              >
+                {{ '開啟所有專案' }}
+              </button></template
+            ><button class="text-button" @click="() => (pathDialog = true)">
+              {{ '貼上專案路徑' }}
+            </button>
+            <div class="welcome-features">
+              <span><FolderOpen :size="15" />{{ '專案收藏' }}</span
+              ><span><Layers3 :size="15" />{{ '多專案分頁' }}</span
+              ><span><GitBranch :size="15" />{{ '清晰的 Git 圖譜' }}</span>
+            </div>
+          </div></template
+        >
+      </div>
     </main>
     <template v-if="message"
       ><div class="toast" role="alert">

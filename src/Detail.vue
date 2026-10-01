@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue';
-import { Check, ChevronLeft, Copy, FileCode2, Files, GitCommitHorizontal } from 'lucide-vue-next';
+import {
+  Check,
+  ChevronLeft,
+  Copy,
+  FileCode2,
+  Files,
+  GitCommitHorizontal,
+  X,
+} from 'lucide-vue-next';
 import { api } from './api';
 import type { CommitDetail, FilePatch, Snapshot } from './types';
 
@@ -10,6 +18,7 @@ const props = defineProps<{
   snapshot: Snapshot;
   revision: number;
 }>();
+const emit = defineEmits<{ close: [] }>();
 const detail = shallowRef<{ key: string; data?: CommitDetail; error?: string }>({ key: '' });
 const file = ref<{ path: string; area: string } | null>(null);
 const patch = shallowRef<{ key: string; data?: FilePatch; error?: string }>({ key: '' });
@@ -92,19 +101,25 @@ async function copy() {
 </script>
 
 <template>
-  <template v-if="!selection"
-    ><section class="detail-panel">
+  <section class="detail-panel" aria-label="詳細資訊">
+    <div class="panel-heading">
+      <span>{{ file ? '檔案差異' : worktree ? '工作區變更' : 'Commit 詳細資訊' }}</span>
+      <span class="subtle">{{ worktree ? '唯讀' : commit?.shortId }}</span>
+      <button
+        class="icon-button"
+        title="關閉詳細資訊"
+        aria-label="關閉詳細資訊"
+        @click="emit('close')"
+      >
+        <X :size="16" />
+      </button>
+    </div>
+    <template v-if="!selection">
       <div class="detail-empty">
         <GitCommitHorizontal :size="36" />
         <p>{{ '選擇一筆 commit，查看詳細資訊。' }}</p>
-      </div>
-    </section></template
-  ><template v-else
-    ><section class="detail-panel" aria-label="詳細資訊">
-      <div class="panel-heading">
-        <span>{{ file ? '檔案差異' : worktree ? '工作區變更' : 'Commit 詳細資訊' }}</span
-        ><span class="subtle">{{ worktree ? '唯讀' : commit?.shortId }}</span>
-      </div>
+      </div> </template
+    ><template v-else>
       <template v-if="file"
         ><div class="diff-heading">
           <button
@@ -299,6 +314,6 @@ async function copy() {
           ></template
         ></template
       >
-    </section></template
-  >
+    </template>
+  </section>
 </template>
