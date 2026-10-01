@@ -9,7 +9,11 @@
     "test": "vitest run",
     "format": "prettier --write src e2e *.json *.ts index.html",
     "tauri": "tauri",
-    "test:visual": "playwright test"
+    "test:visual": "playwright test",
+    "test:flow": "playwright test --grep \"畫面與完整瀏覽流程\" --ignore-snapshots",
+    "test:windows": "playwright test --config playwright.windows.config.ts",
+    "validate:windows": "npm test && npm run tauri build -- --no-bundle && npm run test:windows",
+    "validation:fixtures": "node --experimental-strip-types scripts/validation-fixtures.ts"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

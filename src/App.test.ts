@@ -115,6 +115,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('取消資料夾選擇器不會新增專案或變更目前分頁', async () => {
+    saveProjects();
+    mocked.choose.mockResolvedValue([]);
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const saved = localStorage.getItem(STORAGE_KEY);
+    await fireEvent.click(screen.getByRole('button', { name: /加入專案 Ctrl O/ }));
+    await flushPromises();
+    expect(mocked.choose).toHaveBeenCalledOnce();
+    expect(mocked.open).not.toHaveBeenCalled();
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(saved);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('選擇器失敗後顯示錯誤，仍能再次加入專案', async () => {
+    mocked.choose.mockRejectedValueOnce(new Error('資料夾選擇器失敗'));
+    render(App);
+    await fireEvent.click(screen.getByRole('button', { name: /加入第一個專案/ }));
+    expect((await screen.findByRole('alert')).textContent).toContain('資料夾選擇器失敗');
+    await fireEvent.click(screen.getByRole('button', { name: '關閉提示' }));
+    await fireEvent.click(screen.getByRole('button', { name: /加入第一個專案/ }));
+    await screen.findByRole('tab', { name: '專案 B' });
+    expect(mocked.choose).toHaveBeenCalledTimes(2);
+  });
+
   it('一次加入多個專案，獨立切換並在重開時還原選取', async () => {
     const first = render(App);
     await fireEvent.click(screen.getByRole('button', { name: /加入第一個專案/ }));

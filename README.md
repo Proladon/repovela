@@ -71,6 +71,8 @@ src-tauri/core/src/graph/     keifu 色彩分配演算法
 
 畫面測試使用改寫前 React 版本保存的 20 張基準圖片，涵蓋 1360×880、1000×640 兩種視窗尺寸。樣式檔與專案儲存格式維持不變。基準來源與比對範圍見 [e2e/BASELINES.md](e2e/BASELINES.md)。
 
+Windows 桌面驗證可執行 `npm run validate:windows`，自動建置並測試真正的原生視窗、WebView2 與 Git IPC，另存 19 張截圖；已有執行檔時用 `npm run test:windows`。新 checkout 沒有本機畫面基準時可先跑 `npm run test:flow`。環境需求、人工資料夾選擇器／DPI 檢查與證據保存見 [e2e/WINDOWS.md](e2e/WINDOWS.md)，結果見 [VALIDATION.md](VALIDATION.md)。
+
 ## 快捷鍵
 
 | 快捷鍵              | 功能                   |

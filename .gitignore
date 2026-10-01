@@ -12,3 +12,4 @@ Thumbs.db
 test-results/
 playwright-report/
 e2e/**/*-snapshots/
+.validation/

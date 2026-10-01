@@ -12,4 +12,6 @@
 
 Vue 模板保留相鄰文字節點的邊界，避免合併節點後出現不同的字距與抗鋸齒。`styles.css` 與 React 版本完全相同，其 SHA-256 為 `91E95EC7AC3A69B4B8BCC3E170F4D0BFD2478168DACC60F327AF04CEDCED77A6`。
 
-測試以本機開發伺服器的展示資料執行，也驗證專案加入、釘選、改名、鍵盤操作、分頁切換與重開還原。原生資料夾選擇器與 WebView2 的畫面仍需在桌面環境實際驗證。其他作業系統或字型環境應另行建立經人工檢查的基準。
+測試以本機開發伺服器的展示資料執行，也驗證專案加入、釘選、改名、鍵盤操作、分頁切換與重開還原。新 checkout 可先執行 `npm run test:flow`，不讀取或建立基準圖片。
+
+實際 Windows Tauri／WebView2 已有獨立自動流程與截圖證據，執行 `npm run validate:windows`；範圍與仍需人工操作的資料夾選擇器、系統按鈕、DPI／視覺檢查見 [WINDOWS.md](WINDOWS.md)。這 20 張 Chromium 基準不套用至 WebView2。其他作業系統、WebView2 版本或字型環境應另行建立經人工檢查的基準。
