@@ -1,0 +1,798 @@
+<script setup lang="ts">
+import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  FolderGit2,
+  FolderOpen,
+  GitBranch,
+  GitCommitHorizontal,
+  Layers3,
+  Pin,
+  Plus,
+  RefreshCw,
+  Search,
+  Settings2,
+  X,
+} from 'lucide-vue-next';
+import { api, chooseProjects, demo, native } from './api';
+import Detail from './Detail.vue';
+import Graph from './Graph.vue';
+import ProjectItem from './ProjectItem.vue';
+import { emptySession, restoreSession, sessionReducer, STORAGE_KEY } from './session';
+import type { Action, Tab } from './session';
+import type { Snapshot } from './types';
+
+const storageKey = demo ? `${STORAGE_KEY}-demo` : STORAGE_KEY;
+const session = shallowRef(
+  (() => {
+    try {
+      return restoreSession(localStorage.getItem(storageKey));
+    } catch {
+      return emptySession;
+    }
+  })(),
+);
+const dispatch = (action: Action) => {
+  session.value = sessionReducer(session.value, action);
+};
+const resource = shallowRef<{ key: string; data?: Snapshot; error?: string; loading: boolean }>({
+  key: '',
+  loading: false,
+});
+const refresh = ref(0);
+const projectSearch = ref('');
+const queries = ref<Record<string, string>>({});
+const message = ref('');
+const adding = ref(false);
+const pathDialog = ref(false);
+const inputPath = ref('');
+const projectMenu = ref<string | null>(null);
+const rename = ref<{ path: string; name: string } | null>(null);
+const branchMenu = ref(false);
+const branchQuery = ref('');
+const help = ref(false);
+const historyRef = ref<HTMLDivElement | null>(null);
+const scrollPositions: Record<string, number> = {};
+const tab = computed(() => session.value.tabs.find((t) => t.path === session.value.active));
+const project = computed(() => session.value.projects.find((p) => p.path === session.value.active));
+const key = computed(() =>
+  tab.value ? `${tab.value.path}:${tab.value.remotes}:${tab.value.limit}` : '',
+);
+const snapshot = computed(() =>
+  resource.value.key === key.value ? resource.value.data : undefined,
+);
+const error = computed(() => (resource.value.key === key.value ? resource.value.error : undefined));
+const loading = computed(
+  () => !!tab.value && (resource.value.key !== key.value || resource.value.loading),
+);
+const query = computed(() => (tab.value ? (queries.value[tab.value.path] ?? '') : ''));
+const queryLower = computed(() => query.value.trim().toLowerCase());
+const matches = computed(
+  () =>
+    snapshot.value?.rows
+      .filter(
+        (r) =>
+          r.commit &&
+          (!queryLower.value ||
+            [r.commit.message, r.commit.author, r.commit.oid, ...r.branches, ...r.tags].some((v) =>
+              v.toLowerCase().includes(queryLower.value),
+            )),
+      )
+      .map((r) => r.commit!.oid) ?? [],
+);
+const visibleProjects = computed(() =>
+  session.value.projects.filter((p) =>
+    `${p.name} ${p.path}`.toLowerCase().includes(projectSearch.value.toLowerCase()),
+  ),
+);
+const displayDate = (date: string) =>
+  new Date(date).toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+const vAutofocus = { mounted: (element: HTMLInputElement) => element.focus() };
+
+watch(
+  session,
+  (value) => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(value));
+    } catch {
+      message.value = '無法儲存分頁狀態，請確認應用程式資料空間。';
+    }
+  },
+  { immediate: true },
+);
+
+watch(
+  [key, refresh],
+  (_value, _previous, onCleanup) => {
+    const currentTab = tab.value;
+    if (!currentTab) return;
+    let live = true;
+    onCleanup(() => {
+      live = false;
+    });
+    const requestKey = key.value;
+    resource.value = {
+      key: requestKey,
+      data: resource.value.key === requestKey ? resource.value.data : undefined,
+      loading: true,
+    };
+    api
+      .repository(currentTab.path, currentTab.remotes, currentTab.limit)
+      .then((data) => {
+        if (live) resource.value = { key: requestKey, data, loading: false };
+      })
+      .catch((err) => {
+        if (live) resource.value = { key: requestKey, error: String(err), loading: false };
+      });
+  },
+  { immediate: true, flush: 'sync' },
+);
+
+watch(
+  [snapshot, tab],
+  ([data, currentTab]) => {
+    if (!currentTab || !data || currentTab.selection === 'worktree') return;
+    if (currentTab.selection && data.rows.some((r) => r.commit?.oid === currentTab.selection))
+      return;
+    const selection =
+      data.headOid && data.rows.some((r) => r.commit?.oid === data.headOid)
+        ? data.headOid
+        : (data.rows.find((r) => r.commit)?.commit?.oid ??
+          (data.workingFiles.length ? 'worktree' : null));
+    if (selection !== currentTab.selection)
+      dispatch({ type: 'tab', path: currentTab.path, patch: { selection } });
+  },
+  { immediate: true },
+);
+
+watch(
+  () => tab.value?.path,
+  (path, _previous, onCleanup) => {
+    if (!path) return;
+    const onFocus = () => {
+      refresh.value++;
+    };
+    const interval = setInterval(() => {
+      if (!document.hidden) onFocus();
+    }, 30000);
+    window.addEventListener('focus', onFocus);
+    onCleanup(() => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+    });
+  },
+  { immediate: true },
+);
+
+watch(
+  [() => tab.value?.path, () => !!snapshot.value],
+  async () => {
+    branchMenu.value = false;
+    projectMenu.value = null;
+    await nextTick();
+    if (historyRef.value && tab.value)
+      historyRef.value.scrollTop = scrollPositions[tab.value.path] ?? 0;
+  },
+  { flush: 'post' },
+);
+
+function select(oid: string, scroll = false) {
+  if (!tab.value) return;
+  dispatch({ type: 'tab', path: tab.value.path, patch: { selection: oid } });
+  if (scroll)
+    requestAnimationFrame(() => {
+      document.getElementById(`commit-${oid}`)?.scrollIntoView({ block: 'nearest' });
+    });
+}
+function updateTab(patch: Partial<Omit<Tab, 'path'>>) {
+  if (tab.value) dispatch({ type: 'tab', path: tab.value.path, patch });
+}
+function setQuery(value: string) {
+  if (tab.value) queries.value[tab.value.path] = value;
+}
+function jumpSearch(e: KeyboardEvent) {
+  if (e.key !== 'Enter' || !tab.value || !matches.value.length) return;
+  const i = matches.value.indexOf(tab.value.selection ?? '');
+  select(
+    matches.value[(i + (e.shiftKey ? -1 : 1) + matches.value.length) % matches.value.length],
+    true,
+  );
+}
+function rememberScroll(e: Event) {
+  if (tab.value) scrollPositions[tab.value.path] = (e.currentTarget as HTMLDivElement).scrollTop;
+}
+function jumpBranch(oid: string) {
+  if (snapshot.value?.rows.some((r) => r.commit?.oid === oid)) select(oid, true);
+  else message.value = '這個分支位於已載入的歷史範圍之外，請先載入更多紀錄。';
+  branchMenu.value = false;
+}
+function loadMore() {
+  if (tab.value) updateTab({ limit: Math.min(tab.value.limit + 500, 5000) });
+}
+async function addPaths(paths: string[]) {
+  adding.value = true;
+  const errors: string[] = [];
+  for (const path of paths) {
+    try {
+      dispatch({ type: 'add', project: await api.openProject(path.trim()) });
+    } catch (e) {
+      errors.push(`${path}：${String(e)}`);
+    }
+  }
+  adding.value = false;
+  if (errors.length) message.value = errors.join('\n');
+  else {
+    pathDialog.value = false;
+    inputPath.value = '';
+  }
+}
+async function addProject() {
+  if (!native && !demo) {
+    message.value = '請以 Tauri 桌面版啟動，才能讀取電腦上的 Git 專案。';
+    return;
+  }
+  if (demo) {
+    inputPath.value = session.value.projects.length ? 'demo://另一個專案' : 'demo://keifu';
+    pathDialog.value = true;
+    return;
+  }
+  try {
+    const paths = await chooseProjects();
+    if (paths.length) await addPaths(paths);
+  } catch (e) {
+    message.value = String(e);
+  }
+}
+
+function handleKeydown(e: KeyboardEvent) {
+  const currentTab = tab.value;
+  const data = snapshot.value;
+  const editing =
+    e.target instanceof HTMLElement &&
+    (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable);
+  const modifier = e.ctrlKey || e.metaKey;
+  if (modifier && e.key.toLowerCase() === 'o') {
+    e.preventDefault();
+    void addProject();
+  }
+  if (modifier && e.key.toLowerCase() === 'w' && currentTab) {
+    e.preventDefault();
+    dispatch({ type: 'close', path: currentTab.path });
+  }
+  if (modifier && e.key === 'Tab' && session.value.tabs.length) {
+    e.preventDefault();
+    const i = session.value.tabs.findIndex((t) => t.path === session.value.active);
+    dispatch({
+      type: 'activate',
+      path: session.value.tabs[
+        (i + (e.shiftKey ? -1 : 1) + session.value.tabs.length) % session.value.tabs.length
+      ].path,
+    });
+  }
+  if (modifier && e.key.toLowerCase() === 'f') {
+    e.preventDefault();
+    document.getElementById('history-search')?.focus();
+  }
+  if (e.key === 'Escape') {
+    branchMenu.value = false;
+    projectMenu.value = null;
+    pathDialog.value = false;
+    rename.value = null;
+    help.value = false;
+  }
+  if (
+    !editing &&
+    !modifier &&
+    !e.altKey &&
+    currentTab &&
+    data &&
+    !help.value &&
+    !pathDialog.value &&
+    !rename.value
+  ) {
+    if (e.key.toLowerCase() === 'r') refresh.value++;
+    if (e.key === '@' && data.headOid) select(data.headOid, true);
+    if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
+      e.preventDefault();
+      const commits = data.rows.flatMap((r) => (r.commit ? [r.commit.oid] : []));
+      const i = commits.indexOf(currentTab.selection ?? '');
+      const next =
+        commits[
+          Math.max(
+            0,
+            Math.min(commits.length - 1, i + (e.key === 'j' || e.key === 'ArrowDown' ? 1 : -1)),
+          )
+        ];
+      if (next) select(next, true);
+    }
+  }
+}
+onMounted(() => window.addEventListener('keydown', handleKeydown));
+onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+</script>
+
+<template>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><GitBranch :size="22" /></div>
+        <div>
+          <strong>{{ 'Repovela' }}</strong
+          ><small>{{ '讓專案各就各位' }}</small>
+        </div>
+      </div>
+      <button class="add-project" @click="() => void addProject()" :disabled="adding">
+        <Plus :size="16" />{{ adding ? '加入中…' : '加入專案' }}<kbd>{{ 'Ctrl O' }}</kbd></button
+      ><label class="project-search"
+        ><Search :size="14" /><input
+          :value="projectSearch"
+          @input="(e) => (projectSearch = (e.target as HTMLInputElement).value)"
+          placeholder="搜尋專案"
+          aria-label="搜尋專案"
+      /></label>
+      <div class="project-library">
+        <template v-if="visibleProjects.some((p) => p.pinned)"
+          ><div class="library-label"><Pin :size="12" />{{ '已釘選' }}</div>
+          <ProjectItem
+            v-for="p in visibleProjects.filter((p) => p.pinned)"
+            :key="p.path"
+            :project="p"
+            :active="session.active"
+            :menu-open="projectMenu === p.path"
+            @action="dispatch"
+            @toggle-menu="projectMenu = projectMenu === p.path ? null : p.path"
+            @dismiss="projectMenu = null"
+            @rename="rename = { path: p.path, name: p.name }"
+            @path="
+              inputPath = p.path;
+              message = p.path;
+            "
+        /></template>
+        <div class="library-label">
+          <FolderOpen :size="12" />{{ '專案'
+          }}<span>{{ visibleProjects.filter((p) => !p.pinned).length }}</span>
+        </div>
+        <ProjectItem
+          v-for="p in visibleProjects.filter((p) => !p.pinned)"
+          :key="p.path"
+          :project="p"
+          :active="session.active"
+          :menu-open="projectMenu === p.path"
+          @action="dispatch"
+          @toggle-menu="projectMenu = projectMenu === p.path ? null : p.path"
+          @dismiss="projectMenu = null"
+          @rename="rename = { path: p.path, name: p.name }"
+          @path="
+            inputPath = p.path;
+            message = p.path;
+          "
+        /><template v-if="!session.projects.length"
+          ><p class="library-empty">
+            {{ '加入常用的 Git 專案，' }}<br />{{ '下次開啟就能接著看。' }}
+          </p></template
+        ><template v-if="!!session.projects.length && !visibleProjects.length"
+          ><p class="library-empty">{{ '找不到符合的專案。' }}</p></template
+        >
+      </div>
+      <div class="sidebar-bottom">
+        <span class="status-dot" />{{ '本機・唯讀'
+        }}<button
+          class="icon-button"
+          title="快捷鍵與關於"
+          aria-label="快捷鍵與關於"
+          @click="() => (help = true)"
+        >
+          <Settings2 :size="16" />
+        </button>
+      </div>
+    </aside>
+    <main class="main">
+      <div class="tabs" role="tablist" aria-label="專案分頁">
+        <template v-for="t in session.tabs" :key="t.path"
+          ><div :class="`tab ${session.active === t.path ? 'selected' : ''}`">
+            <button
+              role="tab"
+              :aria-selected="session.active === t.path"
+              :title="t.path"
+              @click="
+                () =>
+                  dispatch({
+                    type: 'activate',
+                    path: t.path,
+                  })
+              "
+            >
+              <FolderGit2 :size="14" /><span>{{
+                session.projects.find((p) => p.path === t.path)?.name
+              }}</span></button
+            ><button
+              class="tab-close icon-button"
+              :aria-label="`關閉 ${session.projects.find((p) => p.path === t.path)?.name} 分頁`"
+              @click="
+                () =>
+                  dispatch({
+                    type: 'close',
+                    path: t.path,
+                  })
+              "
+            >
+              <X :size="13" />
+            </button></div></template
+        ><button
+          class="new-tab icon-button"
+          title="加入專案"
+          aria-label="加入專案分頁"
+          @click="() => void addProject()"
+        >
+          <Plus :size="17" /></button
+        ><span class="tab-spacer" /><span class="session-label">{{
+          demo ? '展示模式' : '自動還原分頁'
+        }}</span>
+      </div>
+      <template v-if="demo"
+        ><div class="demo-banner">
+          {{ '展示模式：範例資料僅供預覽，不會讀取你的電腦。' }}
+        </div></template
+      ><template v-if="tab && project"
+        ><div class="toolbar">
+          <div class="repo-title">
+            <FolderGit2 :size="20" />
+            <div>
+              <h1>{{ project.name }}</h1>
+              <span :title="project.path">{{ project.path }}</span>
+            </div>
+          </div>
+          <div class="toolbar-actions">
+            <div class="branch-picker">
+              <button
+                class="soft-button"
+                @click="() => (branchMenu = !branchMenu)"
+                :disabled="!snapshot"
+              >
+                <GitBranch :size="14" /><span>{{ snapshot?.head ?? '尚無 commit' }}</span
+                ><ChevronDown :size="13" /></button
+              ><template v-if="branchMenu && snapshot"
+                ><div class="dismiss" @click="() => (branchMenu = false)" />
+                <div class="branch-menu popover">
+                  <label
+                    ><Search :size="14" /><input
+                      v-autofocus
+                      :value="branchQuery"
+                      @input="(e) => (branchQuery = (e.target as HTMLInputElement).value)"
+                      placeholder="跳至分支（不切換分支）"
+                      aria-label="搜尋分支"
+                  /></label>
+                  <div class="branch-list">
+                    <template
+                      v-for="b in snapshot.branches.filter((b) =>
+                        b.name.toLowerCase().includes(branchQuery.toLowerCase()),
+                      )"
+                      :key="b.name"
+                      ><button @click="jumpBranch(b.oid)">
+                        <GitBranch :size="13" /><span>{{ b.name }}</span
+                        ><small>{{ b.isHead ? 'HEAD' : b.isRemote ? '遠端' : '' }}</small>
+                      </button></template
+                    >
+                  </div>
+                </div></template
+              >
+            </div>
+            <button
+              :class="`soft-button refresh-button ${loading ? 'refreshing' : ''}`"
+              @click="() => (refresh = refresh + 1)"
+              :disabled="loading"
+              title="重新整理（R）"
+            >
+              <RefreshCw :size="14" /><span>{{ '重新整理' }}</span>
+            </button>
+          </div>
+        </div>
+        <div class="repo-meta">
+          <span
+            ><GitBranch :size="12" />{{
+              snapshot?.branches.filter((b) => !b.isRemote).length ?? '—'
+            }}<!---->{{ ' 個本機分支' }}</span
+          ><span
+            ><GitCommitHorizontal :size="13" />{{ snapshot?.commitCount ?? '—' }}<!---->{{
+              ' 筆 commit'
+            }}</span
+          ><template v-if="snapshot?.upstream"
+            ><span :title="snapshot.upstream"
+              ><ArrowUp :size="12" />{{ snapshot.ahead }}<ArrowDown :size="12" />{{
+                snapshot.behind
+              }}</span
+            ></template
+          ><span class="meta-spacer" /><label
+            ><input
+              type="checkbox"
+              :checked="tab.remotes"
+              @change="updateTab({ remotes: ($event.target as HTMLInputElement).checked })"
+            />{{ '顯示遠端分支' }}</label
+          >
+        </div>
+        <template v-if="error"
+          ><div class="main-empty">
+            <FolderGit2 :size="38" />
+            <h2>{{ '專案暫時無法讀取' }}</h2>
+            <p class="error-text">{{ error }}</p>
+            <button class="primary-button" @click="() => (refresh = refresh + 1)">
+              {{ '重新嘗試' }}
+            </button>
+          </div></template
+        ><template v-else
+          ><template v-if="!snapshot"
+            ><div class="main-empty">
+              <div class="spinner" />
+              <p>{{ '正在讀取 Git 歷史…' }}</p>
+            </div></template
+          ><template v-else
+            ><div class="workspace">
+              <section class="history-panel" aria-label="Git 歷史">
+                <div class="panel-heading">
+                  <span>{{ 'Commit 歷史' }}</span
+                  ><span class="subtle">{{ '所有分支' }}</span>
+                </div>
+                <label class="history-search"
+                  ><Search :size="15" /><input
+                    id="history-search"
+                    placeholder="搜尋訊息、作者、SHA 或分支"
+                    aria-label="搜尋 commit"
+                    :value="query"
+                    @input="setQuery(($event.target as HTMLInputElement).value)"
+                    @keydown="jumpSearch"
+                  /><template v-if="query"
+                    ><small>{{ matches.length }}<!---->{{ ' 筆' }}</small
+                    ><button class="icon-button" aria-label="清除搜尋" @click="setQuery('')">
+                      <X :size="13" /></button></template
+                  ><template v-else
+                    ><kbd>{{ 'Ctrl F' }}</kbd></template
+                  ></label
+                >
+                <div class="history-scroll" ref="historyRef" @scroll="rememberScroll">
+                  <button
+                    id="commit-worktree"
+                    :class="`working-row ${tab.selection === 'worktree' ? 'selected' : ''}`"
+                    @click="() => select('worktree')"
+                  >
+                    <div class="worktree-icon"><Layers3 :size="17" /></div>
+                    <div>
+                      <strong>{{ '工作區' }}</strong
+                      ><span>{{
+                        snapshot.workingFiles.length
+                          ? `${snapshot.workingFiles.length} 個檔案尚未提交`
+                          : '工作目錄乾淨'
+                      }}</span>
+                    </div>
+                    <span class="count">{{ snapshot.workingFiles.length }}</span>
+                  </button>
+                  <div class="history-table">
+                    <template
+                      v-for="(row, i) in snapshot.rows"
+                      :key="row.commit ? row.commit.oid : `connector-${i}`"
+                      ><template v-if="row.commit"
+                        ><button
+                          :id="`commit-${row.commit.oid}`"
+                          :class="`commit-row ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
+                          @click="() => select(row.commit!.oid)"
+                        >
+                          <Graph :cells="row.cells" :lanes="snapshot.maxLane" :connector="false" />
+                          <div class="commit-text">
+                            <div class="commit-subject">
+                              <template v-if="row.isHead"
+                                ><span class="head-badge">{{ 'HEAD' }}</span></template
+                              ><template v-for="b in row.branches" :key="b"
+                                ><span class="branch-badge">{{ b }}</span></template
+                              ><template v-for="t in row.tags" :key="t"
+                                ><span class="tag-badge">{{ t }}</span></template
+                              ><strong :title="row.commit.message">{{
+                                row.commit.message || '（無 commit 訊息）'
+                              }}</strong>
+                            </div>
+                            <div class="commit-caption">
+                              <span>{{ row.commit.author }}</span
+                              ><code>{{ row.commit.shortId }}</code
+                              ><time :datetime="row.commit.date">{{
+                                displayDate(row.commit.date)
+                              }}</time>
+                            </div>
+                          </div>
+                        </button></template
+                      ><template v-else
+                        ><div class="connector-row">
+                          <Graph
+                            :cells="row.cells"
+                            :lanes="snapshot.maxLane"
+                            :connector="true"
+                          /></div></template
+                    ></template>
+                  </div>
+                  <template v-if="!snapshot.commitCount"
+                    ><div class="history-empty">
+                      <GitCommitHorizontal :size="27" />
+                      <p>{{ '這個專案還沒有 commit。' }}</p>
+                    </div></template
+                  ><template v-if="snapshot.hasMore"
+                    ><button
+                      class="load-more"
+                      :disabled="tab.limit >= 5000 || loading"
+                      @click="loadMore"
+                    >
+                      {{ tab.limit >= 5000 ? '已顯示前 5,000 筆紀錄' : '載入更多紀錄' }}
+                    </button></template
+                  >
+                </div>
+              </section>
+              <Detail
+                :key="tab.path"
+                :path="tab.path"
+                :selection="tab.selection"
+                :snapshot="snapshot"
+                :revision="refresh"
+              /></div></template
+        ></template>
+        <footer class="status-bar">
+          <span class="status-dot" /><span>{{
+            loading ? '正在更新…' : error ? '讀取失敗' : '已同步本機資料'
+          }}</span
+          ><span class="meta-spacer" /><span>{{ 'j / k 瀏覽' }}</span
+          ><span>{{ '@ 跳至 HEAD' }}</span
+          ><span>{{ 'Ctrl Tab 切換專案' }}</span>
+        </footer></template
+      ><template v-else
+        ><div class="onboarding">
+          <div class="onboarding-graphic">
+            <div class="orbit one" />
+            <div class="orbit two" />
+            <div class="welcome-icon"><FolderGit2 :size="40" /></div>
+            <span class="floating-node n1" /><span class="floating-node n2" /><span
+              class="floating-node n3"
+            />
+          </div>
+          <span class="eyebrow">{{ 'YOUR REPOSITORIES, TOGETHER' }}</span>
+          <h1>{{ '所有專案，一個工作空間。' }}</h1>
+          <p>
+            {{ '把常用的 Git 專案放進來，用分頁自在切換。' }}<br />{{
+              '重新開啟時，從上次停下的地方繼續。'
+            }}
+          </p>
+          <button class="primary-button" @click="() => void addProject()">
+            <Plus :size="17" />{{
+              session.projects.length ? '加入其他專案' : '加入第一個專案'
+            }}</button
+          ><template v-if="!!session.projects.length"
+            ><button
+              class="text-button"
+              @click="
+                () =>
+                  session.projects.forEach((p) =>
+                    dispatch({
+                      type: 'open',
+                      path: p.path,
+                    }),
+                  )
+              "
+            >
+              {{ '開啟所有專案' }}
+            </button></template
+          ><button class="text-button" @click="() => (pathDialog = true)">
+            {{ '貼上專案路徑' }}
+          </button>
+          <div class="welcome-features">
+            <span><FolderOpen :size="15" />{{ '專案收藏' }}</span
+            ><span><Layers3 :size="15" />{{ '多專案分頁' }}</span
+            ><span><GitBranch :size="15" />{{ '清晰的 Git 圖譜' }}</span>
+          </div>
+        </div></template
+      >
+    </main>
+    <template v-if="message"
+      ><div class="toast" role="alert">
+        <pre>{{ message }}</pre>
+        <button class="icon-button" aria-label="關閉提示" @click="() => (message = '')">
+          <X :size="15" />
+        </button></div></template
+    ><template v-if="pathDialog || rename || help"
+      ><div
+        class="modal-backdrop"
+        @click="
+          () => {
+            pathDialog = false;
+            rename = null;
+            help = false;
+          }
+        "
+      >
+        <div
+          class="modal"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="help ? '快捷鍵與關於' : rename ? '重新命名專案' : '加入專案'"
+          @click="(e) => e.stopPropagation()"
+        >
+          <button
+            class="modal-close icon-button"
+            aria-label="關閉對話框"
+            @click="
+              () => {
+                pathDialog = false;
+                rename = null;
+                help = false;
+              }
+            "
+          >
+            <X :size="18" /></button
+          ><template v-if="help"
+            ><span class="eyebrow">{{ 'REPOVELA · 0.1.0' }}</span>
+            <h2>{{ '鍵盤也能自在瀏覽' }}</h2>
+            <div class="shortcuts">
+              <template
+                v-for="[k, v] in [
+                  ['Ctrl / ⌘ O', '加入專案'],
+                  ['Ctrl / ⌘ W', '關閉目前分頁'],
+                  ['Ctrl / ⌘ Tab', '下一個專案'],
+                  ['Ctrl / ⌘ Shift Tab', '上一個專案'],
+                  ['Ctrl / ⌘ F', '搜尋 commit'],
+                  ['Enter / Shift Enter', '下一筆 / 上一筆搜尋結果'],
+                  ['j / k 或 ↑ / ↓', '選擇 commit'],
+                  ['@', '跳至 HEAD'],
+                  ['R', '重新整理'],
+                ]"
+                :key="k"
+                ><div>
+                  <span>{{ v }}</span
+                  ><kbd>{{ k }}</kbd>
+                </div></template
+              >
+            </div>
+            <p class="subtle">
+              {{ '衍生自 trasta298/keifu（MIT）。' }}<br />{{ '分頁與專案清單自動儲存於本機。' }}
+            </p></template
+          ><template v-else
+            ><form
+              @submit="
+                (e) => {
+                  e.preventDefault();
+                  if (rename) {
+                    dispatch({
+                      type: 'rename',
+                      ...rename,
+                    });
+                    rename = null;
+                  } else if (native || demo) void addPaths([inputPath]);
+                  else message = '請以 Tauri 桌面版啟動後再加入專案。';
+                }
+              "
+            >
+              <span class="eyebrow">{{ rename ? 'PROJECT NAME' : 'ADD REPOSITORY' }}</span>
+              <h2>{{ rename ? '重新命名專案' : '加入 Git 專案' }}</h2>
+              <p class="subtle">
+                {{ rename ? '名稱只會影響專案清單。' : '輸入專案的完整資料夾路徑。' }}
+              </p>
+              <input
+                class="modal-input"
+                v-autofocus
+                required
+                :aria-label="rename ? '專案名稱' : '專案路徑'"
+                :value="rename ? rename.name : inputPath"
+                @input="
+                  (e) =>
+                    rename
+                      ? (rename = {
+                          ...rename,
+                          name: (e.target as HTMLInputElement).value,
+                        })
+                      : (inputPath = (e.target as HTMLInputElement).value)
+                "
+                :placeholder="rename ? '專案名稱' : 'C:\\Projects\\my-project'"
+              /><button class="primary-button" :disabled="adding" type="submit">
+                {{ rename ? '儲存名稱' : adding ? '加入中…' : '加入專案' }}
+              </button>
+            </form></template
+          >
+        </div>
+      </div></template
+    >
+  </div>
+</template>

@@ -1,8 +1,10 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { defineConfig } from 'vitest/config';
+import vue from '@vitejs/plugin-vue';
 
 export default defineConfig({
-  plugins: [react()],
+  // 保留文字節點的分隔，避免字距與原畫面不同。
+  plugins: [vue({ template: { compilerOptions: { comments: true } } })],
   server: { port: 5173, strictPort: true },
   clearScreen: false,
+  test: { include: ['src/**/*.test.ts'] },
 });

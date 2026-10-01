@@ -2,6 +2,8 @@
 
 Repovela 是以 [keifu](https://github.com/trasta298/keifu) 圖譜演算法為基礎的獨立 Tauri 2 桌面 Git 瀏覽器。第一版聚焦多專案管理與瀏覽，全程唯讀。
 
+前端使用 Vue 3、TypeScript 與單檔元件（Composition API）。
+
 ## 目前功能
 
 - 一次選取多個 Git 專案，也可貼上資料夾路徑；自動找到儲存庫根目錄並去重。
@@ -45,6 +47,8 @@ npm run dev
 ```powershell
 npm run build
 npm test
+npx playwright install chromium
+npm run test:visual
 cargo test --manifest-path src-tauri/Cargo.toml -p repovela-core
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
@@ -56,7 +60,7 @@ npm run tauri build -- --no-bundle
 ## 架構
 
 ```text
-src/                         React + TypeScript 桌面介面與本機 session
+src/                         Vue 3 + TypeScript 桌面介面與本機 session
 src-tauri/src/lib.rs          Tauri 唯讀 IPC，背景執行 Git 讀取
 src-tauri/core/src/lib.rs     儲存庫、commit、工作區與 diff adapter
 src-tauri/core/src/git/       keifu Git 資料結構與圖譜演算法
@@ -65,19 +69,21 @@ src-tauri/core/src/graph/     keifu 色彩分配演算法
 
 唯讀瀏覽使用 libgit2，不需要啟動終端機或依賴 `git` 執行檔。專案與分頁狀態儲存於 WebView 的本機儲存空間；重開保留資料，清除此應用程式的 WebView 資料會重設清單。
 
+畫面測試使用改寫前 React 版本保存的 20 張基準圖片，涵蓋 1360×880、1000×640 兩種視窗尺寸。樣式檔與專案儲存格式維持不變。基準來源與比對範圍見 [e2e/BASELINES.md](e2e/BASELINES.md)。
+
 ## 快捷鍵
 
-| 快捷鍵 | 功能 |
-| --- | --- |
-| Ctrl / ⌘ O | 加入專案 |
-| Ctrl / ⌘ W | 關閉分頁 |
-| Ctrl / ⌘ Tab | 下一個專案 |
-| Ctrl / ⌘ Shift Tab | 上一個專案 |
-| Ctrl / ⌘ F | 搜尋 commit |
+| 快捷鍵              | 功能                   |
+| ------------------- | ---------------------- |
+| Ctrl / ⌘ O          | 加入專案               |
+| Ctrl / ⌘ W          | 關閉分頁               |
+| Ctrl / ⌘ Tab        | 下一個專案             |
+| Ctrl / ⌘ Shift Tab  | 上一個專案             |
+| Ctrl / ⌘ F          | 搜尋 commit            |
 | Enter / Shift Enter | 下一筆／上一筆搜尋結果 |
-| j / k、↑ / ↓ | 選取 commit |
-| @ | 跳至 HEAD |
-| R | 重新整理 |
+| j / k、↑ / ↓        | 選取 commit            |
+| @                   | 跳至 HEAD              |
+| R                   | 重新整理               |
 
 ## 第一版範圍
 
