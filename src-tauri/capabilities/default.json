@@ -1,7 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
-  "description": "主視窗僅能開啟資料夾選擇器與呼叫唯讀 Git 指令。",
+  "description": "主視窗可使用自訂標題列控制視窗與開啟資料夾選擇器。",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "dialog:allow-open"
+  ]
 }

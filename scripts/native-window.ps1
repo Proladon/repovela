@@ -21,6 +21,7 @@ public static class ValidationWindow {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr handle, StringBuilder text, int size);
     [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr handle);
     [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr handle);
+    [DllImport("user32.dll")] public static extern bool IsZoomed(IntPtr handle);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr handle, int command);
     [DllImport("user32.dll", SetLastError = true)] public static extern bool SetWindowPos(IntPtr handle, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr handle, uint message, IntPtr wparam, IntPtr lparam);
@@ -68,6 +69,7 @@ $title = New-Object System.Text.StringBuilder 256
     title = $title.ToString()
     visible = [ValidationWindow]::IsWindowVisible($handle)
     minimized = [ValidationWindow]::IsIconic($handle)
+    maximized = [ValidationWindow]::IsZoomed($handle)
     dpi = $dpi
     width = [Math]::Round($client.Right * 96 / $dpi)
     height = [Math]::Round($client.Bottom * 96 / $dpi)

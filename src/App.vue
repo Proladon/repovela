@@ -33,6 +33,7 @@ import {
 } from 'lucide-vue-next';
 import { api, chooseProjects, demo, native } from './api';
 import Detail from './Detail.vue';
+import WindowTitlebar from './WindowTitlebar.vue';
 import GitActions from './GitActions.vue';
 import ContextMenu from './ContextMenu.vue';
 import CommitActionDialog from './CommitActionDialog.vue';
@@ -213,7 +214,7 @@ const primaryBranches = computed(() =>
 );
 const primaryBranchTitle = computed(() =>
   primaryBranches.value.length
-    ? `跳至 master/main（M）：${primaryBranches.value.map((b) => b.name).join('、')}`
+    ? `跳至 master/main 或目前 checkout（M）：${primaryBranches.value.map((b) => b.name).join('、')}`
     : '目前範圍沒有 master/main 分支；可開啟「顯示遠端分支」查看遠端紀錄',
 );
 const headLabel = computed(
@@ -547,19 +548,45 @@ function focusBranch(branch: Branch) {
   pendingBranchFocus.value = { path: tab.value.path, branch };
   finishBranchFocus();
 }
+function branchFocusItems(separatorBefore = false): MenuItem[] {
+  const disabled = loading.value || operating.value;
+  return [
+    ...(primaryBranches.value.length
+      ? primaryBranches.value.map((branch, index) => ({
+          label: `跳至 ${branch.name}`,
+          icon: LocateFixed,
+          separatorBefore: separatorBefore && index === 0,
+          disabled,
+          run: () => focusBranch(branch),
+        }))
+      : [
+          {
+            label: '跳至 master/main',
+            icon: LocateFixed,
+            separatorBefore,
+            disabled: true,
+            disabledReason: primaryBranchTitle.value,
+            run: () => {},
+          },
+        ]),
+    {
+      label: '跳至目前 checkout',
+      icon: GitBranch,
+      separatorBefore: true,
+      disabled: disabled || !snapshot.value?.headOid,
+      disabledReason: !snapshot.value?.headOid ? '目前沒有已 checkout 的 commit。' : undefined,
+      run: () => {
+        const data = snapshot.value;
+        if (!data?.headOid) return;
+        focusBranch({ name: headLabel.value, oid: data.headOid, isHead: true, isRemote: false });
+      },
+    },
+  ];
+}
 function focusPrimaryBranch(event: MouseEvent) {
-  if (loading.value || operating.value || !primaryBranches.value.length) return;
+  if (loading.value || operating.value) return;
   branchMenu.value = false;
-  if (primaryBranches.value.length === 1) focusBranch(primaryBranches.value[0]);
-  else
-    contextMenu.open(
-      event,
-      primaryBranches.value.map((branch) => ({
-        label: `跳至 ${branch.name}`,
-        icon: LocateFixed,
-        run: () => focusBranch(branch),
-      })),
-    );
+  contextMenu.open(event, branchFocusItems());
 }
 function openRepositoryMenu(event: MouseEvent) {
   const data = snapshot.value;
@@ -585,24 +612,7 @@ function openRepositoryMenu(event: MouseEvent) {
       run: () => operate({ operation: 'push' }),
     },
     { label: '分支操作', icon: GitBranch, disabled, run: () => gitActions.value?.openBranches() },
-    ...(primaryBranches.value.length
-      ? primaryBranches.value.map((branch, index) => ({
-          label: `跳至 ${branch.name}`,
-          icon: LocateFixed,
-          separatorBefore: index === 0,
-          disabled: operating.value || loading.value,
-          run: () => focusBranch(branch),
-        }))
-      : [
-          {
-            label: '跳至 master/main',
-            icon: LocateFixed,
-            separatorBefore: true,
-            disabled: true,
-            disabledReason: primaryBranchTitle.value,
-            run: () => {},
-          },
-        ]),
+    ...branchFocusItems(true),
   ]);
 }
 async function composeCommit() {
@@ -938,7 +948,8 @@ function handleKeydown(e: KeyboardEvent) {
     if (e.key === '@' && data.headOid) select(data.headOid, true);
     if (e.key.toLowerCase() === 'm') {
       e.preventDefault();
-      primaryBranchButton.value?.click();
+      if (primaryBranches.value.length === 1) focusBranch(primaryBranches.value[0]);
+      else primaryBranchButton.value?.click();
     }
     if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
       e.preventDefault();
@@ -966,8 +977,9 @@ onUnmounted(() => {
   <div
     class="app-shell"
     :style="appearanceStyle"
-    :class="{ 'hide-column-dividers': !preferences.showColumnDividers }"
+    :class="{ 'native-window': native, 'hide-column-dividers': !preferences.showColumnDividers }"
   >
+    <WindowTitlebar v-if="native" @error="message = $event" />
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark"><GitBranch :size="22" /></div>
@@ -1125,9 +1137,11 @@ onUnmounted(() => {
                 ref="primaryBranchButton"
                 class="soft-button icon-button git-icon-action"
                 @click="focusPrimaryBranch"
-                :disabled="loading || operating || !primaryBranches.length"
-                :title="primaryBranchTitle"
+                :disabled="loading || operating || (!primaryBranches.length && !snapshot?.headOid)"
+                :title="primaryBranches.length ? primaryBranchTitle : '跳至目前 checkout（M）'"
                 aria-label="跳至 master/main"
+                aria-haspopup="menu"
+                :aria-expanded="contextMenu.state.value?.target === primaryBranchButton"
               >
                 <LocateFixed :size="15" />
               </button>

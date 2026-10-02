@@ -7,6 +7,9 @@ import type { Commit, CommitDetail, CommitOperation, FilePatch, Snapshot } from 
 import { STORAGE_KEY } from './session';
 import { defaultPreferences, PREFERENCES_KEY } from './preferences';
 
+// 原生視窗控制由 Windows 整合測試驗證，jsdom 僅測試專案互動。
+vi.mock('./WindowTitlebar.vue', () => ({ default: { render: () => null } }));
+
 const mocked = vi.hoisted(() => ({
   operate: vi.fn(),
   repository: vi.fn(),
@@ -531,6 +534,7 @@ describe('桌面分頁與瀏覽互動', () => {
       const button = screen.getByRole('button', { name: '跳至 master/main' });
       expect(button.title).toContain(name);
       await fireEvent.click(button);
+      await fireEvent.click(screen.getByRole('menuitem', { name: `跳至 ${name}` }));
       await screen.findByRole('heading', { name: '加入專案管理' });
       await waitFor(() => expect(document.activeElement?.id).toBe(`commit-${commits[0].oid}`));
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
@@ -563,6 +567,7 @@ describe('桌面分頁與瀏覽互動', () => {
       '跳至 main',
       '跳至 master',
       '跳至 origin/main',
+      '跳至目前 checkout',
     ]);
     await fireEvent.click(screen.getByRole('menuitem', { name: '跳至 main' }));
     await screen.findByRole('heading', { name: '加入專案管理' });
@@ -591,7 +596,64 @@ describe('桌面分頁與瀏覽互動', () => {
     );
   });
 
-  it('沒有主分支時停用跳轉，不誤認 feature/main', async () => {
+  it.each(['dev', 'feature/main', null])(
+    '跳至目前 checkout（%s）會清除搜尋、定位 HEAD 且不修改 Git',
+    async (head) => {
+      saveProjects();
+      mocked.repository.mockImplementation(async (path: string) => ({
+        ...snapshot(path),
+        head,
+        branches: head
+          ? [
+              { name: head, oid: commits[0].oid, isHead: true, isRemote: false },
+              ...(head === 'dev'
+                ? [{ name: 'master', oid: commits[1].oid, isHead: false, isRemote: false }]
+                : []),
+            ]
+          : [],
+      }));
+      render(App);
+      await screen.findByRole('heading', { name: '初始版本' });
+      const search = screen.getByRole('textbox', { name: '搜尋 commit' });
+      await fireEvent.update(search, '初始版本');
+      await fireEvent.click(screen.getByRole('button', { name: '跳至 master/main' }));
+      await fireEvent.click(screen.getByRole('menuitem', { name: '跳至目前 checkout' }));
+      await screen.findByRole('heading', { name: '加入專案管理' });
+      await waitFor(() => expect(document.activeElement?.id).toBe(`commit-${commits[0].oid}`));
+      expect((search as HTMLInputElement).value).toBe('');
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+      await fireEvent.click(document.getElementById(`commit-${commits[1].oid}`)!);
+      await fireEvent.contextMenu(document.querySelector('.toolbar')!);
+      await fireEvent.click(screen.getByRole('menuitem', { name: '跳至目前 checkout' }));
+      await screen.findByRole('heading', { name: '加入專案管理' });
+      expect(mocked.operate).not.toHaveBeenCalled();
+      expect(mocked.repository).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('尚無 commit 時停用目前 checkout 的跳轉', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      head: null,
+      headOid: null,
+      branches: [],
+      rows: [],
+      commitCount: 0,
+    }));
+    render(App);
+    await screen.findByText('這個專案還沒有 commit。');
+    expect(
+      (screen.getByRole('button', { name: '跳至 master/main' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await fireEvent.contextMenu(document.querySelector('.toolbar')!);
+    expect(
+      (screen.getByRole('menuitem', { name: '跳至目前 checkout' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(mocked.operate).not.toHaveBeenCalled();
+  });
+
+  it('沒有主分支時仍可跳至 checkout，不誤認 feature/main', async () => {
     saveProjects();
     mocked.repository.mockImplementation(async (path: string) => ({
       ...snapshot(path),
@@ -610,7 +672,7 @@ describe('桌面分頁與瀏覽互動', () => {
     await screen.findByRole('heading', { name: '初始版本' });
     expect(
       (screen.getByRole('button', { name: '跳至 master/main' }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
     await fireEvent.keyDown(window, { key: 'm' });
     expect(screen.getByRole('heading', { name: '初始版本' })).toBeTruthy();
     await fireEvent.contextMenu(document.querySelector('.toolbar')!);
@@ -630,6 +692,7 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '加入專案管理' });
     await fireEvent.click(screen.getByRole('button', { name: '跳至 master/main' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '跳至 master' }));
     await screen.findByRole('heading', { name: '初始版本' });
     await waitFor(() => expect(document.activeElement?.id).toBe(`commit-${commits[1].oid}`));
     expect(mocked.repository).toHaveBeenLastCalledWith('/a', true, 1000);
@@ -647,6 +710,7 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '加入專案管理' });
     await fireEvent.click(screen.getByRole('button', { name: '跳至 master/main' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '跳至 master' }));
     await screen.findByText(/無法跳至 master.*5,000/);
     expect(mocked.repository.mock.calls.map((call) => call[2])).toEqual([
       500, 1000, 2000, 4000, 5000,
@@ -668,12 +732,14 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '加入專案管理' });
     await fireEvent.click(screen.getByRole('button', { name: '跳至 master/main' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '跳至 master' }));
     await screen.findByText(/無法跳至 master.*read failed/);
     expect(mocked.repository).toHaveBeenCalledTimes(2);
     mocked.repository.mockImplementation(async (path: string) => snapshot(path));
     await fireEvent.click(screen.getByRole('button', { name: '重新整理' }));
     await screen.findByRole('button', { name: '跳至 master/main' });
     await fireEvent.click(screen.getByRole('button', { name: '跳至 master/main' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '跳至 main' }));
     await waitFor(() => expect(document.activeElement?.id).toBe(`commit-${commits[0].oid}`));
   });
 
@@ -695,6 +761,7 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '加入專案管理' });
     await fireEvent.click(screen.getByRole('button', { name: '跳至 master/main' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '跳至 master' }));
     await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
     await screen.findByRole('heading', { name: '加入專案管理' });
     resolve(snapshot('/a'));

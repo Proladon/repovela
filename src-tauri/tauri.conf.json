@@ -13,6 +13,8 @@
     "windows": [{
       "label": "main",
       "title": "Repovela",
+      "decorations": false,
+      "shadow": true,
       "width": 1360,
       "height": 880,
       "minWidth": 1000,

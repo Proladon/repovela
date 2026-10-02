@@ -1,5 +1,8 @@
 use repovela_core::{CommitDetail, FilePatch, GitRequest, Project, ProjectOpenError, Snapshot};
 
+#[cfg(windows)]
+mod window_frame;
+
 #[tauri::command]
 async fn git_operation(path: String, request: GitRequest) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || repovela_core::git_operation(&path, request))
@@ -71,6 +74,26 @@ pub fn run() {
             read_patch,
             git_operation
         ])
-        .run(tauri::generate_context!())
-        .expect("無法啟動 Repovela");
+        .build(tauri::generate_context!())
+        .expect("無法啟動 Repovela")
+        .run(|_app, _event| {
+            #[cfg(windows)]
+            {
+                use tauri::Manager;
+                // 視窗初始化與啟用後套用，避免系統重新顯示主題色邊框。
+                if matches!(
+                    _event,
+                    tauri::RunEvent::Ready
+                        | tauri::RunEvent::WindowEvent {
+                            event: tauri::WindowEvent::Focused(true)
+                                | tauri::WindowEvent::ThemeChanged(_),
+                            ..
+                        }
+                ) {
+                    if let Some(window) = _app.get_webview_window("main") {
+                        window_frame::apply(&window);
+                    }
+                }
+            }
+        });
 }

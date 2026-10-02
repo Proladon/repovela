@@ -85,6 +85,21 @@ pre {
   flex-direction: column;
   padding: 25px 12px 0;
 }
+.app-shell.native-window {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 34px minmax(0, 1fr);
+}
+.native-window > .sidebar {
+  grid-column: 1;
+  grid-row: 2;
+  min-height: 0;
+}
+.native-window > .main {
+  grid-column: 2;
+  grid-row: 2;
+  min-height: 0;
+}
 .brand {
   display: flex;
   align-items: center;
@@ -1269,6 +1284,12 @@ pre {
   text-align: center;
   padding: 45px 25px;
   background: radial-gradient(ellipse at 50% 30%, #27223455, transparent 55%);
+}
+.native-window .onboarding {
+  min-height: 0;
+  overflow: auto;
+  justify-content: safe center;
+  padding: 28px 25px;
 }
 .onboarding h1 {
   font-size: calc(27px * var(--font-scale, 1));

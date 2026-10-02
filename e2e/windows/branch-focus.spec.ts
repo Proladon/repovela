@@ -72,12 +72,20 @@ test('主分支快速 focus：遠端選擇、M、右鍵、自動載入舊歷史�
     await expect(baseRow).toBeInViewport();
     await expect(page.getByRole('button', { name: 'dev', exact: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath('focused-master.png') });
+    await focus.click();
+    await page.getByRole('menuitem', { name: '跳至目前 checkout', exact: true }).click();
+    await expect(page.locator(`#commit-${latest}`)).toBeFocused();
+    await expect(page.locator(`#commit-${latest}`)).toHaveClass(/selected/);
+    await expect(page.locator(`#commit-${latest}`)).toBeInViewport();
     await page.keyboard.press('m');
     await page.getByRole('menuitem', { name: '跳至 origin/main', exact: true }).click();
     await expect(page.locator(`#commit-${latest}`)).toBeFocused();
     await page.locator('.toolbar').click({ button: 'right' });
     await page.getByRole('menuitem', { name: '跳至 origin/master', exact: true }).click();
     await expect(baseRow).toBeFocused();
+    await page.locator('.toolbar').click({ button: 'right' });
+    await page.getByRole('menuitem', { name: '跳至目前 checkout', exact: true }).click();
+    await expect(page.locator(`#commit-${latest}`)).toBeFocused();
     expect({
       head: git('symbolic-ref', 'HEAD'),
       refs: git('show-ref'),

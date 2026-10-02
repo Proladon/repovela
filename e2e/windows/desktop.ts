@@ -43,6 +43,7 @@ export async function nativeWindow(pid: number, action = 'inspect', width = 1360
     title: string;
     visible: boolean;
     minimized: boolean;
+    maximized: boolean;
     dpi: number;
     width: number;
     height: number;
