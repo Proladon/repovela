@@ -43,7 +43,7 @@ import SyncBranchDialog from './SyncBranchDialog.vue';
 import TrustProjectDialog from './TrustProjectDialog.vue';
 import { provideContextMenu, type MenuItem } from './contextMenu';
 import ColumnHeading from './ColumnHeading.vue';
-import PreferencesPage from './Preferences.vue';
+import PreferencesDialog from './Preferences.vue';
 import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
 import { graphColor, selectedGraphLine, type GraphGlowRow } from './graph';
 import Graph from './Graph.vue';
@@ -1032,7 +1032,7 @@ onUnmounted(() => {
     :class="{ 'native-window': native, 'hide-column-dividers': !preferences.showColumnDividers }"
   >
     <WindowTitlebar v-if="native" @error="message = $event" />
-    <aside class="sidebar">
+    <aside class="sidebar" :inert="settingsOpen ? true : undefined">
       <div class="brand">
         <div class="brand-mark"><GitBranch :size="22" /></div>
         <div>
@@ -1113,14 +1113,8 @@ onUnmounted(() => {
         </button>
       </div>
     </aside>
-    <main class="main">
-      <PreferencesPage
-        v-if="settingsOpen"
-        v-model="preferences"
-        @close="closePreferences"
-        @reset="preferences = { ...defaultPreferences }"
-      />
-      <div v-show="!settingsOpen" class="main-content">
+    <main class="main" :inert="settingsOpen ? true : undefined">
+      <div class="main-content">
         <div class="tabs" role="tablist" aria-label="專案分頁">
           <template v-for="t in session.tabs" :key="t.path"
             ><div :class="`tab ${session.active === t.path ? 'selected' : ''}`">
@@ -1560,6 +1554,12 @@ onUnmounted(() => {
         >
       </div>
     </main>
+    <PreferencesDialog
+      v-if="settingsOpen"
+      v-model="preferences"
+      @close="closePreferences"
+      @reset="preferences = { ...defaultPreferences }"
+    />
     <template v-if="message"
       ><div class="toast" role="alert">
         <pre>{{ message }}</pre>

@@ -18,11 +18,13 @@ const mocked = vi.hoisted(() => ({
   choose: vi.fn(),
   open: vi.fn(),
   trust: vi.fn(),
+  fonts: vi.fn(),
 }));
 vi.mock('./api', () => ({
   native: true,
   demo: false,
   chooseProjects: mocked.choose,
+  listSystemFonts: mocked.fonts,
   api: {
     operate: mocked.operate,
     repository: mocked.repository,
@@ -113,6 +115,7 @@ beforeEach(() => {
   );
   localStorage.clear();
   vi.clearAllMocks();
+  mocked.fonts.mockResolvedValue(['Arial', '自訂安裝字體']);
   mocked.operate.mockResolvedValue('ok');
   mocked.repository.mockImplementation(async (path: string) => snapshot(path));
   mocked.commit.mockImplementation(async (_path: string, oid: string) => detail(oid));
@@ -1486,7 +1489,7 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(document.querySelector('.graph-glow')).not.toBeNull();
     await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
     await fireEvent.click(screen.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }));
-    await fireEvent.click(screen.getByRole('button', { name: '返回工作區' }));
+    await fireEvent.click(screen.getByRole('button', { name: '關閉偏好設定' }));
     expect(document.querySelector('.graph-glow, .graph-node-highlight')).toBeNull();
     expect(document.querySelector('.graph-head-node')).not.toBeNull();
     expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).highlightSelectedLine).toBe(false);
@@ -1502,7 +1505,7 @@ describe('桌面分頁與瀏覽互動', () => {
     }) as HTMLInputElement;
     expect(toggle.checked).toBe(false);
     await fireEvent.click(toggle);
-    await fireEvent.click(screen.getByRole('button', { name: '返回工作區' }));
+    await fireEvent.click(screen.getByRole('button', { name: '關閉偏好設定' }));
     expect(document.querySelector('.graph-glow')).not.toBeNull();
     expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).highlightSelectedLine).toBe(true);
     expect(document.querySelector('.commit-row.selected')?.id).toBe(`commit-${commits[1].oid}`);
@@ -1513,13 +1516,29 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '初始版本' });
     await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
-    const settings = screen.getByRole('region', { name: '偏好設定' });
+    const settings = screen.getByRole('dialog', { name: '偏好設定' });
+    await waitFor(() => {
+      for (const id of ['ui-fonts', 'code-fonts']) {
+        expect(
+          Array.from(settings.querySelectorAll(`#${id} option`), (option) =>
+            option.getAttribute('value'),
+          ),
+        ).toEqual(['', 'Arial', '自訂安裝字體', 'Cascadia Code']);
+      }
+    });
+    const history = screen.getByRole('region', { name: 'Git 歷史' });
+    expect((history.closest('.main-content') as HTMLElement).style.display).not.toBe('none');
+    expect(history.closest('.main')?.hasAttribute('inert')).toBe(true);
+    expect(document.activeElement).toBe(
+      within(settings).getByRole('button', { name: '關閉偏好設定' }),
+    );
     await fireEvent.click(
       within(settings).getByRole('checkbox', { name: /^分支標籤跟隨分支線顏色/ }),
     );
     await fireEvent.click(within(settings).getByRole('checkbox', { name: /^醒目顯示 HEAD 節點/ }));
-    await fireEvent.click(within(settings).getByRole('button', { name: '返回工作區' }));
-    const history = screen.getByRole('region', { name: 'Git 歷史' });
+    await fireEvent.click(within(settings).getByRole('button', { name: '關閉偏好設定' }));
+    expect(screen.queryByRole('dialog', { name: '偏好設定' })).toBeNull();
+    expect(history.closest('.main')?.hasAttribute('inert')).toBe(false);
     expect(history.querySelector('.branch-badge.follows-line')).not.toBeNull();
     expect(history.querySelector('.graph-head-node')).toBeNull();
     expect(history.querySelector('[aria-current="true"]')).not.toBeNull();
@@ -1531,6 +1550,31 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(history.querySelector('.branch-badge.follows-line')).toBeNull();
     expect(history.querySelector('.graph-head-node')).not.toBeNull();
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).tabs[0].selection).toBe(commits[1].oid);
+  });
+
+  it('系統字體讀取失敗保留已儲存字體，重新開啟後可切換完整清單', async () => {
+    mocked.fonts.mockRejectedValueOnce(new Error('font enumeration failed'));
+    localStorage.setItem(
+      PREFERENCES_KEY,
+      JSON.stringify({ ...defaultPreferences, fontFamily: '已儲存字體' }),
+    );
+    render(App);
+    await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
+    await screen.findByText('無法載入系統字體，請重新開啟偏好設定再試。');
+    const uiFont = screen.getByRole('combobox', { name: '介面字體' }) as HTMLSelectElement;
+    expect(uiFont.value).toBe('已儲存字體');
+    await fireEvent.click(screen.getByRole('button', { name: '關閉偏好設定' }));
+    await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
+    await waitFor(() => expect(document.querySelectorAll('#ui-fonts option')).toHaveLength(5));
+    expect(screen.queryByText('無法載入系統字體，請重新開啟偏好設定再試。')).toBeNull();
+    const reopenedUiFont = screen.getByRole('combobox', { name: '介面字體' }) as HTMLSelectElement;
+    expect(reopenedUiFont.value).toBe('已儲存字體');
+    await fireEvent.update(reopenedUiFont, 'Arial');
+    expect(Array.from(reopenedUiFont.options, (option) => option.value)).toContain('自訂安裝字體');
+    await fireEvent.update(reopenedUiFont, '自訂安裝字體');
+    expect(Array.from(reopenedUiFont.options, (option) => option.value)).toContain('Arial');
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).fontFamily).toBe('自訂安裝字體');
+    expect(mocked.fonts).toHaveBeenCalledTimes(2);
   });
 
   it('載入已儲存的外觀設定，新分頁使用瀏覽預設值，既有分頁保留原設定', async () => {

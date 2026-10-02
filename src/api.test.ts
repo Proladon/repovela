@@ -2,10 +2,18 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
+const core = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: () => true }));
 vi.mock('@tauri-apps/plugin-dialog', () => dialog);
-import { chooseProjects } from './api';
+vi.mock('@tauri-apps/api/core', () => core);
+import { chooseProjects, listSystemFonts } from './api';
 
 beforeEach(() => vi.resetAllMocks());
+
+it('從桌面後端取得完整系統字體清單', async () => {
+  core.invoke.mockResolvedValue(['Arial', '自訂安裝字體']);
+  await expect(listSystemFonts()).resolves.toEqual(['Arial', '自訂安裝字體']);
+  expect(core.invoke).toHaveBeenCalledExactlyOnceWith('list_system_fonts');
+});
 
 it.each([
   [null, []],

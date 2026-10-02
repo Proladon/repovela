@@ -15,23 +15,38 @@ for (const viewport of [
     const connectorHeight = Math.round((18 * fontSize) / 13);
     await page.goto('/?demo');
     await page.getByRole('button', { name: '偏好設定', exact: true }).click();
-    const settings = page.getByRole('region', { name: '偏好設定' });
+    const settings = page.getByRole('dialog', { name: '偏好設定' });
     await expect(settings.getByRole('heading', { name: '偏好設定' })).toBeVisible();
+    await expect(settings.getByRole('button', { name: '關閉偏好設定' })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(settings.getByRole('button', { name: '還原預設設定' })).toBeFocused();
+    await page.keyboard.press('Shift+Tab');
+    await expect(settings.getByRole('combobox', { name: '首次載入 commit 數量' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(settings.getByRole('button', { name: '還原預設設定' })).toBeFocused();
     await page.keyboard.press('Escape');
+    await expect(settings).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '偏好設定', exact: true })).toBeFocused();
+    await page.keyboard.press('Control+,');
+    await page.locator('.preferences-backdrop').click({ position: { x: 8, y: 8 } });
+    await expect(settings).toHaveCount(0);
     await expect(page.getByRole('button', { name: '偏好設定', exact: true })).toBeFocused();
     await page.getByRole('button', { name: '貼上專案路徑' }).click();
     await page.getByRole('textbox', { name: '專案路徑' }).fill('demo://keifu');
     await page.getByRole('dialog').getByRole('button', { name: '加入專案', exact: true }).click();
     await expect(page.locator('.commit-row.selected')).toBeVisible();
 
+    const selectedCommit = await page.locator('.commit-row.selected').getAttribute('id');
     await page.keyboard.press('Control+,');
-    await expect(page.getByRole('region', { name: 'Git 歷史' })).toBeHidden();
+    await expect(page.getByRole('region', { name: 'Git 歷史' })).toBeVisible();
+    await expect(page.locator('.main')).toHaveAttribute('inert', '');
+    await expect(page.locator('.sidebar')).toHaveAttribute('inert', '');
     await settings.getByRole('checkbox', { name: /^分支標籤跟隨分支線顏色/ }).check();
     await settings.getByRole('checkbox', { name: /^Git 標籤跟隨分支線顏色/ }).check();
     await settings.getByRole('checkbox', { name: /^醒目顯示 HEAD 節點/ }).uncheck();
     await settings.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }).uncheck();
-    await settings.getByLabel('介面字體', { exact: true }).fill('Consolas');
-    await settings.getByLabel('程式碼字體', { exact: true }).fill('Courier New');
+    await settings.getByLabel('介面字體', { exact: true }).selectOption('Consolas');
+    await settings.getByLabel('程式碼字體', { exact: true }).selectOption('Courier New');
     const fontSizeInput = settings.getByRole('spinbutton', { name: '字體大小', exact: true });
     await fontSizeInput.press('Control+A');
     await fontSizeInput.pressSequentially(String(fontSize));
@@ -48,7 +63,9 @@ for (const viewport of [
       element.scrollTop = 0;
     });
     await page.screenshot({ path: testInfo.outputPath('preferences.png') });
-    await settings.getByRole('button', { name: '返回工作區' }).click();
+    await settings.getByRole('button', { name: '關閉偏好設定' }).click();
+    await expect(page.locator('.main')).not.toHaveAttribute('inert', '');
+    await expect(page.locator('.commit-row.selected')).toHaveAttribute('id', selectedCommit!);
 
     const head = page.locator('.commit-row[aria-current="true"]');
     const author = head.locator('.commit-author');
@@ -114,7 +131,7 @@ for (const viewport of [
     await expect(
       settings.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }),
     ).not.toBeChecked();
-    await settings.getByRole('button', { name: '返回工作區' }).click();
+    await settings.getByRole('button', { name: '關閉偏好設定' }).click();
     await page.locator('.add-project').click();
     await page.getByRole('dialog').getByRole('button', { name: '加入專案', exact: true }).click();
     await expect(page.getByRole('tab', { name: '另一個專案' })).toHaveAttribute(
@@ -143,7 +160,7 @@ for (const viewport of [
     await expect(
       settings.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }),
     ).toBeChecked();
-    await settings.getByRole('button', { name: '返回工作區' }).click();
+    await settings.getByRole('button', { name: '關閉偏好設定' }).click();
     await expect(page.locator('.graph-head-node')).toHaveCount(1);
     expect(await page.locator('.graph-glow').count()).toBeGreaterThan(0);
     await expect(page.locator('.branch-badge.follows-line')).toHaveCount(0);

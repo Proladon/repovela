@@ -20,10 +20,11 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 repovela-core = { path = "core" }
 portable-pty = "0.9"
+font-kit = "0.14"
 serde = { version = "1.0.229", features = ["derive"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Dwm", "Win32_Graphics_Gdi"] }
 
 [profile.release]
 lto = true

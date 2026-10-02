@@ -1459,27 +1459,35 @@ pre {
   align-items: center;
   gap: 8px;
 }
-.preferences-page {
+.preferences-dialog {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  width: 820px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 64px);
   min-height: 0;
   min-width: 0;
+  overflow: hidden;
+  background: #20232c;
+  border: 1px solid #454052;
+  border-radius: 12px;
+  box-shadow: 0 25px 100px #0006;
 }
 .preferences-header {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 16px;
-  padding: 24px 28px;
+  padding: 12px 28px;
   border-bottom: 1px solid var(--border);
 }
 .preferences-header h1 {
   margin: 0;
-  font-size: calc(22px * var(--font-scale, 1));
+  font-size: calc(18px * var(--font-scale, 1));
   font-weight: 550;
 }
 .preferences-header p {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
   font-size: calc(11px * var(--font-scale, 1));
 }

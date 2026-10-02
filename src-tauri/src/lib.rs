@@ -3,7 +3,27 @@ use tauri::Manager;
 mod terminal;
 
 #[cfg(windows)]
+mod system_fonts;
+#[cfg(windows)]
 mod window_frame;
+
+#[tauri::command]
+async fn list_system_fonts() -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut families = font_kit::source::SystemSource::new()
+            .all_families()
+            .map_err(|e| format!("無法讀取系統字體：{e}"))?;
+        // Windows 的舊式家族名稱也用於 CSS 字體選擇，例如 Arial Black。
+        #[cfg(windows)]
+        families.extend(system_fonts::legacy_families()?);
+        families.retain(|family| !family.trim().is_empty());
+        families.sort_by_cached_key(|family| family.to_lowercase());
+        families.dedup_by(|a, b| a.eq_ignore_ascii_case(b));
+        Ok(families)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
 
 #[tauri::command]
 async fn git_operation(path: String, request: GitRequest) -> Result<String, String> {
@@ -75,6 +95,7 @@ pub fn run() {
         })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
+            list_system_fonts,
             open_project,
             trust_project,
             read_repository,

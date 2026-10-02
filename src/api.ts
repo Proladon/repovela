@@ -6,6 +6,10 @@ export const native = isTauri();
 export const demo =
   !native && import.meta.env.DEV && new URLSearchParams(location.search).has('demo');
 
+export function listSystemFonts(): Promise<string[]> {
+  return native ? invoke<string[]>('list_system_fonts') : Promise.resolve([]);
+}
+
 async function demoData() {
   return (await import('./demo-data.json')).default as unknown as {
     snapshot: Snapshot;
