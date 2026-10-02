@@ -1,6 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
-import type { CommitDetail, FilePatch, Project, Snapshot } from './types';
+import type { CommitDetail, FilePatch, GitRequest, Project, Snapshot } from './types';
 
 export const native = isTauri();
 export const demo =
@@ -52,6 +52,14 @@ export async function chooseProjects(): Promise<string[]> {
 }
 
 export const api = {
+  trustProject: (path: string) => {
+    if (!native) return Promise.reject(new Error('信任本機專案請使用桌面版。'));
+    return call<Project>('trust_project', { path });
+  },
+  operate: (path: string, request: GitRequest) => {
+    if (!native) return Promise.reject(new Error('Git 操作請使用桌面版。'));
+    return call<string>('git_operation', { path, request });
+  },
   openProject: (path: string) => call<Project>('open_project', { path }),
   repository: (path: string, includeRemotes: boolean, limit: number) =>
     call<Snapshot>('read_repository', { path, includeRemotes, limit }),

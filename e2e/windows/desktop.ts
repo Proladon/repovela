@@ -61,7 +61,11 @@ async function freePort(): Promise<number> {
   });
 }
 
-export async function launchDesktop(profile: string, info: TestInfo) {
+export async function launchDesktop(
+  profile: string,
+  info: TestInfo,
+  environment: Record<string, string> = {},
+) {
   await access(executable);
   await mkdir(profile, { recursive: true });
   const port = await freePort();
@@ -70,6 +74,7 @@ export async function launchDesktop(profile: string, info: TestInfo) {
     windowsHide: true,
     env: {
       ...process.env,
+      ...environment,
       WEBVIEW2_USER_DATA_FOLDER: profile,
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --remote-debugging-address=127.0.0.1`,
     },

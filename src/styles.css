@@ -405,8 +405,146 @@ pre {
   text-overflow: ellipsis;
   overflow: hidden;
 }
-.branch-picker {
+.branch-picker,
+.git-branch-picker {
   position: relative;
+}
+.git-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.soft-button.git-icon-action,
+.popover .git-icon-action {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.git-branch-menu .git-icon-action {
+  align-self: flex-end;
+}
+.commit-form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.popover.context-menu {
+  position: fixed;
+  width: 240px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  z-index: 200;
+}
+.menu-separator {
+  height: 1px;
+  margin: 5px;
+  background: #3b4050;
+}
+.commit-action-dialog {
+  width: min(460px, calc(100vw - 32px));
+}
+.action-target {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+.action-target code {
+  color: var(--accent);
+}
+.commit-action-dialog label {
+  display: block;
+  font-size: calc(11px * var(--font-scale, 1));
+}
+.commit-action-dialog select,
+.commit-action-dialog textarea {
+  width: 100%;
+  margin: 8px 0 14px;
+  padding: 9px;
+  background: #15171d;
+  color: inherit;
+  border: 1px solid #494455;
+  border-radius: 5px;
+  font: inherit;
+}
+.commit-action-dialog textarea {
+  resize: vertical;
+}
+.commit-action-dialog .action-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.action-dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.operation-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent);
+  font-size: calc(11px * var(--font-scale, 1));
+}
+.context-menu button:disabled:hover {
+  background: none;
+  color: inherit;
+}
+.git-branch-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 260px;
+  padding: 14px;
+}
+.git-branch-menu form,
+.commit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.git-branch-menu label,
+.commit-form label {
+  font-size: calc(11px * var(--font-scale, 1));
+}
+.git-branch-menu input,
+.git-branch-menu select,
+.commit-form textarea {
+  width: 100%;
+  color: inherit;
+  background: #16191f;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 8px;
+  font: inherit;
+}
+.commit-form textarea {
+  resize: vertical;
+  min-height: 64px;
+}
+.working-file-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.working-file-actions .file-row {
+  flex: 1;
+  min-width: 0;
+}
+.file-section .section-heading .soft-button {
+  margin-left: auto;
 }
 .repo-meta {
   display: flex;

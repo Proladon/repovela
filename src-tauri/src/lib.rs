@@ -1,8 +1,23 @@
-use repovela_core::{CommitDetail, FilePatch, Project, Snapshot};
+use repovela_core::{CommitDetail, FilePatch, GitRequest, Project, ProjectOpenError, Snapshot};
 
 #[tauri::command]
-async fn open_project(path: String) -> Result<Project, String> {
-    tauri::async_runtime::spawn_blocking(move || repovela_core::open_project(&path))
+async fn git_operation(path: String, request: GitRequest) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || repovela_core::git_operation(&path, request))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn open_project(path: String) -> Result<Project, ProjectOpenError> {
+    tauri::async_runtime::spawn_blocking(move || repovela_core::open_project_for_ui(&path))
+        .await
+        .map_err(|e| ProjectOpenError::Message(e.to_string()))?
+}
+
+#[tauri::command]
+async fn trust_project(path: String) -> Result<Project, String> {
+    tauri::async_runtime::spawn_blocking(move || repovela_core::trust_project(&path))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))
@@ -50,9 +65,11 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             open_project,
+            trust_project,
             read_repository,
             read_commit,
-            read_patch
+            read_patch,
+            git_operation
         ])
         .run(tauri::generate_context!())
         .expect("無法啟動 Repovela");

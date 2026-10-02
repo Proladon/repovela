@@ -3,23 +3,42 @@ import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } fr
 import {
   ArrowDown,
   ArrowUp,
+  ArrowLeftRight,
+  CloudDownload,
+  Copy,
   ChevronDown,
   CircleHelp,
   FolderGit2,
   FolderOpen,
   GitBranch,
+  GitBranchPlus,
   GitCommitHorizontal,
+  GitMerge,
+  GitFork,
   Layers3,
+  ListMinus,
+  ListPlus,
+  LocateFixed,
   PanelRightOpen,
   Pin,
   Plus,
   RefreshCw,
+  RotateCcw,
+  Tag as TagIcon,
+  Text,
+  Undo2,
   Search,
   Settings2,
   X,
 } from 'lucide-vue-next';
 import { api, chooseProjects, demo, native } from './api';
 import Detail from './Detail.vue';
+import GitActions from './GitActions.vue';
+import ContextMenu from './ContextMenu.vue';
+import CommitActionDialog from './CommitActionDialog.vue';
+import SyncBranchDialog from './SyncBranchDialog.vue';
+import TrustProjectDialog from './TrustProjectDialog.vue';
+import { provideContextMenu, type MenuItem } from './contextMenu';
 import ColumnHeading from './ColumnHeading.vue';
 import PreferencesPage from './Preferences.vue';
 import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
@@ -28,7 +47,35 @@ import Graph from './Graph.vue';
 import ProjectItem from './ProjectItem.vue';
 import { emptySession, restoreSession, sessionReducer, STORAGE_KEY } from './session';
 import type { Action, Tab } from './session';
-import type { Row, Snapshot } from './types';
+import type {
+  Branch,
+  Commit,
+  CommitOperation,
+  GitRequest,
+  OwnershipIssue,
+  Row,
+  Snapshot,
+} from './types';
+
+const contextMenu = provideContextMenu();
+const ownershipIssues = ref<OwnershipIssue[]>([]);
+const ownershipIssue = computed(() => ownershipIssues.value[0]);
+const trusting = ref(false);
+const gitActions = ref<InstanceType<typeof GitActions> | null>(null);
+const commitAction = shallowRef<{
+  path: string;
+  operation: CommitOperation;
+  commit: Commit;
+  expectedHead: string;
+  expectedBranch: string;
+  checkoutRemote?: string;
+} | null>(null);
+const syncBranchAction = shallowRef<{
+  path: string;
+  remotes: Branch[];
+  expectedHead: string;
+  expectedBranch: string;
+} | null>(null);
 
 const storageKey = demo ? `${STORAGE_KEY}-demo` : STORAGE_KEY;
 const preferencesStorageKey = demo ? `${PREFERENCES_KEY}-demo` : PREFERENCES_KEY;
@@ -88,12 +135,15 @@ const projectSearch = ref('');
 const queries = ref<Record<string, string>>({});
 const message = ref('');
 const adding = ref(false);
+const operating = ref(false);
 const pathDialog = ref(false);
 const inputPath = ref('');
 const projectMenu = ref<string | null>(null);
 const rename = ref<{ path: string; name: string } | null>(null);
 const branchMenu = ref(false);
 const branchQuery = ref('');
+const primaryBranchButton = ref<HTMLButtonElement | null>(null);
+const pendingBranchFocus = shallowRef<{ path: string; branch: Branch } | null>(null);
 const help = ref(false);
 const settingsOpen = ref(false);
 const settingsButton = ref<HTMLButtonElement | null>(null);
@@ -137,6 +187,29 @@ const resource = computed(() => {
   return cached?.key === key.value ? cached : undefined;
 });
 const snapshot = computed(() => resource.value?.data);
+const currentBranch = computed(() => snapshot.value?.branches.find((b) => b.isHead && !b.isRemote));
+const primaryBranches = computed(() =>
+  (snapshot.value?.branches ?? [])
+    .filter((branch) => {
+      const name = branch.isRemote
+        ? (branch.localName ?? branch.name.slice(branch.name.indexOf('/') + 1))
+        : branch.name;
+      return name === 'main' || name === 'master';
+    })
+    .sort((a, b) => Number(a.isRemote) - Number(b.isRemote) || a.name.localeCompare(b.name)),
+);
+const primaryBranchTitle = computed(() =>
+  primaryBranches.value.length
+    ? `跳至 master/main（M）：${primaryBranches.value.map((b) => b.name).join('、')}`
+    : '目前範圍沒有 master/main 分支；可開啟「顯示遠端分支」查看遠端紀錄',
+);
+const headLabel = computed(
+  () =>
+    currentBranch.value?.name ??
+    (snapshot.value?.headOid
+      ? `Detached HEAD · ${snapshot.value.headOid.slice(0, 7)}`
+      : '尚無 commit'),
+);
 type HistoryColumn = 'graph' | 'message' | 'time' | 'author';
 const columnWidths = ref<Record<HistoryColumn, number | null>>({
   graph: null,
@@ -176,6 +249,22 @@ const historyTableStyle = computed(() => {
 });
 const error = computed(() => resource.value?.error);
 const loading = computed(() => !!tab.value && (!resource.value || resource.value.loading));
+watch([() => tab.value?.path, settingsOpen], () => {
+  commitAction.value = null;
+  syncBranchAction.value = null;
+});
+watch(
+  () => snapshot.value?.operationState,
+  (state) => {
+    if (state && state !== 'clean') {
+      commitAction.value = null;
+      syncBranchAction.value = null;
+    }
+  },
+);
+watch([() => tab.value?.path, operating, loading, refresh, settingsOpen], () =>
+  contextMenu.close(),
+);
 const query = computed(() => (tab.value ? (queries.value[tab.value.path] ?? '') : ''));
 const queryLower = computed(() => query.value.trim().toLowerCase());
 const matches = computed(
@@ -246,13 +335,14 @@ watch(
   { immediate: true },
 );
 
-function loadRepository(force = false) {
-  const currentTab = tab.value;
+function loadRepository(force = false, currentTab = tab.value) {
   if (!currentTab) return;
-  const cached = resource.value;
+  const requestKey = JSON.stringify([currentTab.path, currentTab.remotes, currentTab.limit]);
+  const stored = resources.value.get(currentTab.path);
+  const cached = stored?.key === requestKey ? stored : undefined;
   if (cached && (!force || cached.loading)) return;
   const request: RepositoryResource = {
-    key: key.value,
+    key: requestKey,
     data: cached?.data,
     loading: true,
   };
@@ -271,9 +361,37 @@ function loadRepository(force = false) {
     });
 }
 function reloadRepository() {
-  if (loading.value) return;
+  if (loading.value || operating.value) return;
   refresh.value++;
   loadRepository(true);
+}
+async function operate(request: GitRequest): Promise<boolean> {
+  const currentTab = tab.value;
+  if (!currentTab || operating.value || loading.value || !native) return false;
+  const name = project.value?.name ?? currentTab.path;
+  operating.value = true;
+  try {
+    await api.operate(currentTab.path, request);
+    message.value = `${name}：Git 操作已完成。`;
+    return true;
+  } catch (error) {
+    message.value = `${name}：${String(error)}`;
+    return false;
+  } finally {
+    // Refresh even after failure: hooks and remote operations can make partial changes.
+    operating.value = false;
+    const latestTab = session.value.tabs.find((t) => t.path === currentTab.path);
+    if (!disposed && latestTab) {
+      const cached = resources.value.get(currentTab.path);
+      if (cached)
+        resources.value = new Map(resources.value).set(currentTab.path, {
+          ...cached,
+          loading: false,
+        });
+      refresh.value++;
+      loadRepository(true, latestTab);
+    }
+  }
 }
 watch(key, () => loadRepository(), { immediate: true, flush: 'sync' });
 
@@ -308,6 +426,7 @@ watch(
 
 function select(oid: string, scroll = false) {
   if (!tab.value) return;
+  pendingBranchFocus.value = null;
   detailVisible.value = true;
   dispatch({ type: 'tab', path: tab.value.path, patch: { selection: oid } });
   if (scroll)
@@ -377,6 +496,289 @@ function jumpBranch(oid: string) {
   else message.value = '這個分支位於已載入的歷史範圍之外，請先載入更多紀錄。';
   branchMenu.value = false;
 }
+function finishBranchFocus() {
+  const pending = pendingBranchFocus.value;
+  if (!pending) return;
+  if (tab.value?.path !== pending.path) {
+    pendingBranchFocus.value = null;
+    return;
+  }
+  if (loading.value) return;
+  const data = snapshot.value;
+  if (error.value || !data) {
+    pendingBranchFocus.value = null;
+    message.value = `無法跳至 ${pending.branch.name}：${error.value ?? '無法讀取歷史'}`;
+    return;
+  }
+  if (data.rows.some((row) => row.commit?.oid === pending.branch.oid)) {
+    pendingBranchFocus.value = null;
+    select(pending.branch.oid);
+    requestAnimationFrame(() => {
+      if (tab.value?.path !== pending.path || tab.value.selection !== pending.branch.oid) return;
+      const row = document.getElementById(`commit-${pending.branch.oid}`);
+      row?.scrollIntoView({ block: 'center' });
+      row?.focus({ preventScroll: true });
+    });
+  } else if (data.hasMore && tab.value.limit < 5000) {
+    updateTab({ limit: Math.min(tab.value.limit * 2, 5000) });
+  } else {
+    pendingBranchFocus.value = null;
+    message.value = `無法跳至 ${pending.branch.name}：目標不在目前歷史範圍內（最多載入 5,000 筆）。`;
+  }
+}
+watch([snapshot, loading, error, () => tab.value?.path], finishBranchFocus, { flush: 'post' });
+function focusBranch(branch: Branch) {
+  if (!tab.value || loading.value || operating.value) return;
+  branchMenu.value = false;
+  setQuery('');
+  pendingBranchFocus.value = { path: tab.value.path, branch };
+  finishBranchFocus();
+}
+function focusPrimaryBranch(event: MouseEvent) {
+  if (loading.value || operating.value || !primaryBranches.value.length) return;
+  branchMenu.value = false;
+  if (primaryBranches.value.length === 1) focusBranch(primaryBranches.value[0]);
+  else
+    contextMenu.open(
+      event,
+      primaryBranches.value.map((branch) => ({
+        label: `跳至 ${branch.name}`,
+        icon: LocateFixed,
+        run: () => focusBranch(branch),
+      })),
+    );
+}
+function openRepositoryMenu(event: MouseEvent) {
+  const data = snapshot.value;
+  const disabled = !native || operating.value || loading.value || !data;
+  contextMenu.open(event, [
+    {
+      label: '重新整理',
+      icon: RefreshCw,
+      disabled: operating.value || loading.value,
+      run: reloadRepository,
+    },
+    { label: 'Fetch', icon: CloudDownload, disabled, run: () => operate({ operation: 'fetch' }) },
+    {
+      label: 'Pull',
+      icon: ArrowDown,
+      disabled: disabled || !data?.upstream,
+      run: () => operate({ operation: 'pull' }),
+    },
+    {
+      label: 'Push',
+      icon: ArrowUp,
+      disabled: disabled || !data?.headOid,
+      run: () => operate({ operation: 'push' }),
+    },
+    { label: '分支操作', icon: GitBranch, disabled, run: () => gitActions.value?.openBranches() },
+    ...(primaryBranches.value.length
+      ? primaryBranches.value.map((branch, index) => ({
+          label: `跳至 ${branch.name}`,
+          icon: LocateFixed,
+          separatorBefore: index === 0,
+          disabled: operating.value || loading.value,
+          run: () => focusBranch(branch),
+        }))
+      : [
+          {
+            label: '跳至 master/main',
+            icon: LocateFixed,
+            separatorBefore: true,
+            disabled: true,
+            disabledReason: primaryBranchTitle.value,
+            run: () => {},
+          },
+        ]),
+  ]);
+}
+async function composeCommit() {
+  select('worktree');
+  await nextTick();
+  document.getElementById('commit-message')?.focus();
+}
+function openWorktreeMenu(event: MouseEvent) {
+  const files = snapshot.value?.workingFiles ?? [];
+  const disabled = !native || operating.value || loading.value;
+  contextMenu.open(event, [
+    { label: '查看工作區變更', icon: Layers3, run: () => select('worktree') },
+    {
+      label: '全部暫存',
+      icon: ListPlus,
+      disabled: disabled || !files.some((f) => f.unstaged),
+      run: () =>
+        operate({ operation: 'stage', files: files.filter((f) => f.unstaged).map((f) => f.path) }),
+    },
+    {
+      label: '全部取消暫存',
+      icon: ListMinus,
+      disabled: disabled || !files.some((f) => f.staged),
+      run: () =>
+        operate({ operation: 'unstage', files: files.filter((f) => f.staged).map((f) => f.path) }),
+    },
+    { label: '撰寫提交訊息', icon: GitCommitHorizontal, disabled, run: composeCommit },
+  ]);
+}
+function syncBranchItem(remotes: Branch[]): MenuItem {
+  const data = snapshot.value;
+  const hasLocals = data?.branches.some((b) => !b.isRemote);
+  const disabled =
+    !native ||
+    operating.value ||
+    loading.value ||
+    !hasLocals ||
+    !data?.headOid ||
+    (data.operationState ?? 'clean') !== 'clean';
+  return {
+    label: '同步本機分支至此遠端…',
+    icon: ArrowDown,
+    separatorBefore: true,
+    disabled,
+    disabledReason: !hasLocals ? '請先 Checkout 此遠端分支，建立本機追蹤分支。' : undefined,
+    run: () => {
+      const latest = snapshot.value;
+      if (disabled || !tab.value || !latest?.headOid || operating.value || loading.value) return;
+      branchMenu.value = false;
+      syncBranchAction.value = {
+        path: tab.value.path,
+        remotes,
+        expectedHead: latest.headOid,
+        expectedBranch: currentBranch.value ? `refs/heads/${currentBranch.value.name}` : 'HEAD',
+      };
+    },
+  };
+}
+function openBranchMenu(event: MouseEvent, name: string) {
+  const branch: Branch | undefined = snapshot.value?.branches.find((b) => b.name === name);
+  if (!branch) return;
+  const commit = snapshot.value?.rows.find((row) => row.commit?.oid === branch.oid)?.commit;
+  contextMenu.open(event, [
+    { label: '跳至分支紀錄', icon: GitBranch, run: () => jumpBranch(branch.oid) },
+    {
+      label: branch.isRemote ? 'Checkout 遠端分支…' : '切換分支',
+      icon: ArrowLeftRight,
+      disabled:
+        !native ||
+        operating.value ||
+        loading.value ||
+        branch.isHead ||
+        (branch.isRemote && !commit),
+      disabledReason:
+        branch.isRemote && !commit ? '請先載入更多紀錄，再 Checkout 此遠端分支。' : undefined,
+      run: () => {
+        branchMenu.value = false;
+        if (branch.isRemote) {
+          if (commit) openCommitAction('checkout', commit, branch.name);
+          return;
+        }
+        return operate({ operation: 'switchBranch', branch: branch.name });
+      },
+    },
+    {
+      label: '從目前 HEAD 建立分支',
+      icon: GitBranchPlus,
+      disabled: !native || operating.value || loading.value,
+      run: () => {
+        branchMenu.value = false;
+        gitActions.value?.openBranches();
+      },
+    },
+    ...(branch.isRemote ? [syncBranchItem([branch])] : []),
+  ]);
+}
+function openCommitAction(operation: CommitOperation, commit: Commit, checkoutRemote?: string) {
+  const data = snapshot.value;
+  if (!tab.value || !data?.headOid || operating.value || loading.value || !native) return;
+  commitAction.value = {
+    path: tab.value.path,
+    operation,
+    commit,
+    expectedHead: data.headOid,
+    checkoutRemote,
+    expectedBranch: currentBranch.value ? `refs/heads/${currentBranch.value.name}` : 'HEAD',
+  };
+}
+async function copyCommitText(value: string) {
+  try {
+    await navigator.clipboard.writeText(value);
+  } catch (error) {
+    message.value = `無法複製：${String(error)}`;
+  }
+}
+function openCommitMenu(event: MouseEvent, oid: string) {
+  const commit = snapshot.value?.rows.find((row) => row.commit?.oid === oid)?.commit;
+  if (!commit) return;
+  const disabled =
+    !native ||
+    operating.value ||
+    loading.value ||
+    (snapshot.value?.operationState ?? 'clean') !== 'clean';
+  const detached = !currentBranch.value;
+  const remotes =
+    snapshot.value?.branches.filter((branch) => branch.isRemote && branch.oid === oid) ?? [];
+  const detachedReason = detached ? '目前為 Detached HEAD，請先切換至本機分支。' : undefined;
+  contextMenu.open(event, [
+    { label: '新增 Tag…', icon: TagIcon, disabled, run: () => openCommitAction('addTag', commit) },
+    {
+      label: '建立分支…',
+      icon: GitBranchPlus,
+      disabled,
+      run: () => openCommitAction('createBranch', commit),
+    },
+    {
+      label: 'Checkout…',
+      icon: ArrowLeftRight,
+      disabled,
+      separatorBefore: true,
+      run: () => openCommitAction('checkout', commit),
+    },
+    {
+      label: 'Cherry-pick…',
+      icon: GitCommitHorizontal,
+      disabled: disabled || detached,
+      disabledReason: detachedReason,
+      run: () => openCommitAction('cherryPick', commit),
+    },
+    {
+      label: 'Revert…',
+      icon: RotateCcw,
+      disabled: disabled || detached,
+      disabledReason: detachedReason,
+      run: () => openCommitAction('revert', commit),
+    },
+    {
+      label: '合併至目前分支…',
+      icon: GitMerge,
+      disabled: disabled || detached,
+      disabledReason: detachedReason,
+      separatorBefore: true,
+      run: () => openCommitAction('merge', commit),
+    },
+    {
+      label: '將目前分支 Rebase 到此 Commit…',
+      icon: GitFork,
+      disabled: disabled || detached,
+      disabledReason: detachedReason,
+      run: () => openCommitAction('rebase', commit),
+    },
+    {
+      label: '將目前分支 Reset 到此 Commit…',
+      icon: Undo2,
+      disabled: disabled || detached,
+      disabledReason: detachedReason,
+      run: () => openCommitAction('reset', commit),
+    },
+    ...(remotes.length ? [syncBranchItem(remotes)] : []),
+    {
+      label: '複製完整 commit hash',
+      icon: Copy,
+      separatorBefore: true,
+      run: () => copyCommitText(oid),
+    },
+    { label: '複製 Commit 標題', icon: Text, run: () => copyCommitText(commit.message) },
+    { label: '查看 Commit 詳細資訊', icon: GitCommitHorizontal, run: () => select(oid) },
+  ]);
+}
 function loadMore() {
   if (tab.value) updateTab({ limit: Math.min(tab.value.limit + 500, 5000) });
 }
@@ -387,7 +789,12 @@ async function addPaths(paths: string[]) {
     try {
       dispatch({ type: 'add', project: await api.openProject(path.trim()) });
     } catch (e) {
-      errors.push(`${path}：${String(e)}`);
+      if (isOwnershipIssue(e)) {
+        if (!ownershipIssues.value.some((issue) => issue.path === e.path))
+          ownershipIssues.value.push(e);
+        pathDialog.value = false;
+        contextMenu.close();
+      } else errors.push(`${path}：${String(e)}`);
     }
   }
   adding.value = false;
@@ -395,6 +802,34 @@ async function addPaths(paths: string[]) {
   else {
     pathDialog.value = false;
     inputPath.value = '';
+  }
+}
+function isOwnershipIssue(error: unknown): error is OwnershipIssue {
+  return (
+    !!error &&
+    typeof error === 'object' &&
+    'kind' in error &&
+    error.kind === 'ownership' &&
+    'path' in error &&
+    typeof error.path === 'string' &&
+    'message' in error &&
+    typeof error.message === 'string'
+  );
+}
+async function trustProject() {
+  const issue = ownershipIssue.value;
+  if (!issue || trusting.value || adding.value) return;
+  trusting.value = true;
+  try {
+    const project = await api.trustProject(issue.path);
+    dispatch({ type: 'add', project });
+    ownershipIssues.value.shift();
+    inputPath.value = '';
+    message.value = `${project.name}：已信任並加入專案。`;
+  } catch (error) {
+    message.value = `${issue.path}：${String(error)}`;
+  } finally {
+    trusting.value = false;
   }
 }
 async function addProject() {
@@ -416,6 +851,18 @@ async function addProject() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (ownershipIssue.value) {
+    if (e.key === 'Escape' && !trusting.value && !adding.value) ownershipIssues.value.shift();
+    return;
+  }
+  if (syncBranchAction.value) {
+    if (e.key === 'Escape' && !operating.value) syncBranchAction.value = null;
+    return;
+  }
+  if (commitAction.value) {
+    if (e.key === 'Escape' && !operating.value) commitAction.value = null;
+    return;
+  }
   if ((e.ctrlKey || e.metaKey) && e.key === ',') {
     e.preventDefault();
     if (settingsOpen.value) void closePreferences();
@@ -476,6 +923,10 @@ function handleKeydown(e: KeyboardEvent) {
   ) {
     if (e.key.toLowerCase() === 'r') reloadRepository();
     if (e.key === '@' && data.headOid) select(data.headOid, true);
+    if (e.key.toLowerCase() === 'm') {
+      e.preventDefault();
+      primaryBranchButton.value?.click();
+    }
     if (['j', 'k', 'ArrowDown', 'ArrowUp'].includes(e.key)) {
       e.preventDefault();
       const commits = data.rows.flatMap((r) => (r.commit ? [r.commit.oid] : []));
@@ -566,7 +1017,7 @@ onUnmounted(() => {
         >
       </div>
       <div class="sidebar-bottom">
-        <span class="status-dot" />{{ '本機・唯讀'
+        <span class="status-dot" />{{ '本機・Git'
         }}<button
           ref="settingsButton"
           class="icon-button"
@@ -640,7 +1091,7 @@ onUnmounted(() => {
             {{ '展示模式：範例資料僅供預覽，不會讀取你的電腦。' }}
           </div></template
         ><template v-if="tab && project"
-          ><div class="toolbar">
+          ><div class="toolbar" @contextmenu="openRepositoryMenu">
             <div class="repo-title">
               <FolderGit2 :size="20" />
               <div>
@@ -649,13 +1100,23 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="toolbar-actions">
+              <button
+                ref="primaryBranchButton"
+                class="soft-button icon-button git-icon-action"
+                @click="focusPrimaryBranch"
+                :disabled="loading || operating || !primaryBranches.length"
+                :title="primaryBranchTitle"
+                aria-label="跳至 master/main"
+              >
+                <LocateFixed :size="15" />
+              </button>
               <div class="branch-picker">
                 <button
                   class="soft-button"
                   @click="() => (branchMenu = !branchMenu)"
                   :disabled="!snapshot"
                 >
-                  <GitBranch :size="14" /><span>{{ snapshot?.head ?? '尚無 commit' }}</span
+                  <GitBranch :size="14" /><span>{{ headLabel }}</span
                   ><ChevronDown :size="13" /></button
                 ><template v-if="branchMenu && snapshot"
                   ><div class="dismiss" @click="() => (branchMenu = false)" />
@@ -674,7 +1135,10 @@ onUnmounted(() => {
                           b.name.toLowerCase().includes(branchQuery.toLowerCase()),
                         )"
                         :key="b.name"
-                        ><button @click="jumpBranch(b.oid)">
+                        ><button
+                          @click="jumpBranch(b.oid)"
+                          @contextmenu="openBranchMenu($event, b.name)"
+                        >
                           <GitBranch :size="13" /><span>{{ b.name }}</span
                           ><small>{{ b.isHead ? 'HEAD' : b.isRemote ? '遠端' : '' }}</small>
                         </button></template
@@ -684,15 +1148,24 @@ onUnmounted(() => {
                 >
               </div>
               <button
-                :class="`soft-button refresh-button ${loading ? 'refreshing' : ''}`"
+                :class="`soft-button icon-button git-icon-action refresh-button ${loading ? 'refreshing' : ''}`"
                 @click="reloadRepository"
-                :disabled="loading"
+                :disabled="loading || operating"
                 title="重新整理（R）"
+                aria-label="重新整理"
               >
-                <RefreshCw :size="14" /><span>{{ '重新整理' }}</span>
+                <RefreshCw :size="16" aria-hidden="true" />
               </button>
             </div>
           </div>
+          <GitActions
+            ref="gitActions"
+            v-if="snapshot"
+            :key="tab.path"
+            :snapshot="snapshot"
+            :busy="operating || loading"
+            :operate="operate"
+          />
           <div class="repo-meta">
             <span
               ><GitBranch :size="12" />{{
@@ -775,6 +1248,7 @@ onUnmounted(() => {
                       id="commit-worktree"
                       :class="`working-row ${tab.selection === 'worktree' ? 'selected' : ''}`"
                       @click="() => select('worktree')"
+                      @contextmenu="openWorktreeMenu"
                     >
                       <div class="worktree-icon"><Layers3 :size="17" /></div>
                       <div>
@@ -808,6 +1282,7 @@ onUnmounted(() => {
                             :aria-current="row.isHead ? 'true' : undefined"
                             :class="`commit-row ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
                             @click="() => select(row.commit!.oid)"
+                            @contextmenu="openCommitMenu($event, row.commit!.oid)"
                           >
                             <Graph
                               :cells="row.cells"
@@ -826,6 +1301,7 @@ onUnmounted(() => {
                                     class="branch-badge"
                                     :class="{ 'follows-line': preferences.followBranchColor }"
                                     :style="branchStyle(row)"
+                                    @contextmenu="openBranchMenu($event, b)"
                                     >{{ b }}</span
                                   ></template
                                 ><template v-for="t in row.tags" :key="t"
@@ -914,6 +1390,8 @@ onUnmounted(() => {
                     :selection="tab.selection"
                     :snapshot="snapshot"
                     :revision="refresh"
+                    :busy="operating || loading"
+                    :operate="operate"
                     @close="closeDetail"
                   />
                 </div></div></template
@@ -1024,6 +1502,7 @@ onUnmounted(() => {
                   ['Enter / Shift Enter', '下一筆 / 上一筆搜尋結果'],
                   ['j / k 或 ↑ / ↓', '選擇 commit'],
                   ['@', '跳至 HEAD'],
+                  ['M', '跳至 master/main'],
                   ['R', '重新整理'],
                 ]"
                 :key="k"
@@ -1081,5 +1560,37 @@ onUnmounted(() => {
         </div>
       </div></template
     >
+    <ContextMenu />
+    <TrustProjectDialog
+      v-if="ownershipIssue"
+      :key="ownershipIssue.path"
+      :issue="ownershipIssue"
+      :busy="trusting || adding"
+      @cancel="ownershipIssues.shift()"
+      @trust="trustProject"
+    />
+    <CommitActionDialog
+      v-if="commitAction && snapshot && commitAction.path === tab?.path"
+      :key="`${commitAction.operation}:${commitAction.commit.oid}`"
+      :operation="commitAction.operation"
+      :commit="commitAction.commit"
+      :snapshot="snapshot"
+      :expected-head="commitAction.expectedHead"
+      :expected-branch="commitAction.expectedBranch"
+      :checkout-remote="commitAction.checkoutRemote"
+      :busy="operating || loading"
+      :operate="operate"
+      @close="commitAction = null"
+    />
+    <SyncBranchDialog
+      v-if="syncBranchAction && snapshot && syncBranchAction.path === tab?.path"
+      :remotes="syncBranchAction.remotes"
+      :snapshot="snapshot"
+      :expected-head="syncBranchAction.expectedHead"
+      :expected-branch="syncBranchAction.expectedBranch"
+      :busy="operating || loading"
+      :operate="operate"
+      @close="syncBranchAction = null"
+    />
   </div>
 </template>

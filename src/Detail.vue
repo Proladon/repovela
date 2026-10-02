@@ -7,22 +7,83 @@ import {
   FileCode2,
   Files,
   GitCommitHorizontal,
+  ListMinus,
+  ListPlus,
+  Minus,
+  Plus,
   X,
 } from 'lucide-vue-next';
-import { api } from './api';
-import type { CommitDetail, FilePatch, Snapshot } from './types';
+import { api, native } from './api';
+import { useContextMenu } from './contextMenu';
+import type { CommitDetail, FilePatch, GitRequest, Snapshot } from './types';
 
 const props = defineProps<{
   path: string;
   selection: string | null;
   snapshot: Snapshot;
   revision: number;
+  busy: boolean;
+  operate: (request: GitRequest) => Promise<boolean>;
 }>();
 const emit = defineEmits<{ close: [] }>();
 const detail = shallowRef<{ key: string; data?: CommitDetail; error?: string }>({ key: '' });
 const file = ref<{ path: string; area: string } | null>(null);
 const patch = shallowRef<{ key: string; data?: FilePatch; error?: string }>({ key: '' });
 const copied = ref(false);
+const commitMessage = ref('');
+const contextMenu = useContextMenu();
+function openFileMenu(event: MouseEvent, path: string, area: string) {
+  const staged = area === 'staged';
+  contextMenu.open(event, [
+    {
+      label: '查看檔案差異',
+      icon: FileCode2,
+      run: () => {
+        file.value = { path, area };
+      },
+    },
+    {
+      label: staged ? '取消暫存' : '暫存',
+      icon: staged ? Minus : Plus,
+      disabled:
+        !native ||
+        props.busy ||
+        !props.snapshot.workingFiles.some(
+          (f) => f.path === path && (staged ? f.staged : f.unstaged),
+        ),
+      run: () => props.operate({ operation: staged ? 'unstage' : 'stage', files: [path] }),
+    },
+  ]);
+}
+function openWorktreeMenu(event: MouseEvent) {
+  contextMenu.open(event, [
+    ...workingAreas.value.map(({ area, files }) => ({
+      label: area === 'staged' ? '全部取消暫存' : '全部暫存',
+      icon: area === 'staged' ? ListMinus : ListPlus,
+      disabled: !native || props.busy || !files.length,
+      run: () =>
+        props.operate({
+          operation: area === 'staged' ? 'unstage' : 'stage',
+          files: files.map((f) => f.path),
+        }),
+    })),
+    {
+      label: '提交已暫存變更',
+      icon: GitCommitHorizontal,
+      disabled: !native || props.busy || !canCommit.value || !commitMessage.value.trim(),
+      run: submitCommit,
+    },
+  ]);
+}
+const canCommit = computed(
+  () =>
+    props.snapshot.workingFiles.some((f) => f.staged) &&
+    !props.snapshot.workingFiles.some((f) => f.conflict),
+);
+async function submitCommit() {
+  if (await props.operate({ operation: 'commit', message: commitMessage.value }))
+    commitMessage.value = '';
+}
 const worktree = computed(() => props.selection === 'worktree');
 const detailKey = computed(() => `${props.path}:${props.selection}`);
 const patchKey = computed(
@@ -104,7 +165,7 @@ async function copy() {
   <section class="detail-panel" aria-label="詳細資訊">
     <div class="panel-heading">
       <span>{{ file ? '檔案差異' : worktree ? '工作區變更' : 'Commit 詳細資訊' }}</span>
-      <span class="subtle">{{ worktree ? '唯讀' : commit?.shortId }}</span>
+      <span class="subtle">{{ worktree ? '工作區' : commit?.shortId }}</span>
       <button
         class="icon-button"
         title="關閉詳細資訊"
@@ -121,7 +182,10 @@ async function copy() {
       </div> </template
     ><template v-else>
       <template v-if="file"
-        ><div class="diff-heading">
+        ><div
+          class="diff-heading"
+          @contextmenu="worktree && file ? openFileMenu($event, file.path, file.area) : undefined"
+        >
           <button
             class="icon-button"
             title="返回檔案清單"
@@ -177,38 +241,96 @@ async function copy() {
         ></template
       ><template v-else
         ><template v-if="worktree"
-          ><div class="detail-scroll">
+          ><div class="detail-scroll" @contextmenu="openWorktreeMenu">
             <div class="commit-summary">
               <span class="eyebrow">{{ 'WORKING TREE' }}</span>
               <h2>{{ '尚未提交的變更' }}</h2>
-              <p class="subtle">
-                {{ snapshot.workingFiles.length }}<!---->{{ ' 個檔案・瀏覽不會修改專案' }}
-              </p>
+              <p class="subtle">{{ snapshot.workingFiles.length }}<!---->{{ ' 個檔案' }}</p>
             </div>
+            <form class="commit-form" @submit.prevent="submitCommit">
+              <label for="commit-message">提交訊息</label>
+              <textarea
+                id="commit-message"
+                v-model="commitMessage"
+                rows="3"
+                placeholder="描述這次變更"
+                :disabled="busy || !native"
+              />
+              <div class="commit-form-actions">
+                <small class="subtle">提交只包含已暫存的變更。</small
+                ><button
+                  class="soft-button icon-button git-icon-action"
+                  type="submit"
+                  title="提交已暫存變更"
+                  aria-label="提交已暫存變更"
+                  :disabled="busy || !native || !canCommit || !commitMessage.trim()"
+                >
+                  <GitCommitHorizontal :size="17" aria-hidden="true" />
+                </button>
+              </div>
+            </form>
             <template v-for="{ area, files } in workingAreas" :key="area"
               ><div class="file-section">
                 <div class="section-heading">
                   <span>{{ area === 'staged' ? '已暫存' : '未暫存與未追蹤' }}</span
                   ><span class="count">{{ files.length }}</span>
+                  <button
+                    class="soft-button icon-button git-icon-action"
+                    :title="area === 'staged' ? '全部取消暫存' : '全部暫存'"
+                    :aria-label="area === 'staged' ? '全部取消暫存' : '全部暫存'"
+                    :disabled="busy || !native || !files.length"
+                    @click="
+                      operate({
+                        operation: area === 'staged' ? 'unstage' : 'stage',
+                        files: files.map((f) => f.path),
+                      })
+                    "
+                  >
+                    <component
+                      :is="area === 'staged' ? ListMinus : ListPlus"
+                      :size="16"
+                      aria-hidden="true"
+                    />
+                  </button>
                 </div>
                 <template v-if="files.length"
                   ><template v-for="f in files" :key="f.path"
-                    ><button
-                      class="file-row"
-                      @click="
-                        () =>
-                          (file = {
-                            path: f.path,
-                            area,
-                          })
-                      "
+                    ><div
+                      class="working-file-actions"
+                      @contextmenu="openFileMenu($event, f.path, area)"
                     >
-                      <FileCode2 :size="15" /><span :title="f.path">{{ f.path }}</span
-                      ><small :class="f.conflict ? 'minus' : 'subtle'">{{
-                        f.conflict ? '衝突' : f.untracked ? '新增' : '變更'
-                      }}</small>
-                    </button></template
-                  ></template
+                      <button
+                        class="file-row"
+                        @click="
+                          () =>
+                            (file = {
+                              path: f.path,
+                              area,
+                            })
+                        "
+                      >
+                        <FileCode2 :size="15" /><span :title="f.path">{{ f.path }}</span
+                        ><small :class="f.conflict ? 'minus' : 'subtle'">{{
+                          f.conflict ? '衝突' : f.untracked ? '新增' : '變更'
+                        }}</small></button
+                      ><button
+                        class="soft-button icon-button git-icon-action"
+                        :title="`${area === 'staged' ? '取消暫存' : '暫存'} ${f.path}`"
+                        :disabled="busy || !native"
+                        :aria-label="`${area === 'staged' ? '取消暫存' : '暫存'} ${f.path}`"
+                        @click="
+                          operate({
+                            operation: area === 'staged' ? 'unstage' : 'stage',
+                            files: [f.path],
+                          })
+                        "
+                      >
+                        <component
+                          :is="area === 'staged' ? Minus : Plus"
+                          :size="16"
+                          aria-hidden="true"
+                        />
+                      </button></div></template></template
                 ><template v-else
                   ><p class="empty-note">
                     {{ '沒有' }}<!---->{{ area === 'staged' ? '已暫存' : '未暫存' }}<!---->{{

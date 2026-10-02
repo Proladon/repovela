@@ -1,6 +1,10 @@
-//! Read-only desktop adapter around keifu's commit graph engine.
+//! Desktop adapter around keifu's commit graph engine.
 pub mod git;
 pub mod graph;
+mod operations;
+mod trust;
+pub use operations::{git_operation, GitOperation, GitRequest};
+pub use trust::{open_project_for_ui, trust_project, ProjectOpenError};
 
 use anyhow::{bail, Context, Result};
 use git::graph::CellType;
@@ -28,6 +32,8 @@ pub struct Branch {
     pub oid: String,
     pub is_head: bool,
     pub is_remote: bool,
+    pub local_name: Option<String>,
+    pub upstream: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -123,6 +129,7 @@ pub struct WorkingFile {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    pub operation_state: &'static str,
     pub project: Project,
     pub head: Option<String>,
     pub head_oid: Option<String>,
@@ -169,19 +176,24 @@ pub fn open_project(path: &str) -> Result<Project> {
 fn project_info(repo: &Repository) -> Result<Project> {
     let root = repo.workdir().unwrap_or_else(|| repo.path());
     let canonical = root.canonicalize().context("無法讀取專案路徑。")?;
-    let mut path = canonical.to_string_lossy().into_owned();
-    // Windows verbatim paths aren't useful labels; the normal path remains absolute.
-    if let Some(normal) = path.strip_prefix(r"\\?\UNC\") {
-        path = format!(r"\\{normal}");
-    } else if let Some(normal) = path.strip_prefix(r"\\?\") {
-        path = normal.to_owned();
-    }
+    let path = display_path(&canonical);
     let name = root
         .file_name()
         .unwrap_or_default()
         .to_string_lossy()
         .into_owned();
     Ok(Project { path, name })
+}
+
+fn display_path(path: &Path) -> String {
+    let mut path = path.to_string_lossy().into_owned();
+    // Windows verbatim paths aren't useful labels; the normal path remains absolute.
+    if let Some(normal) = path.strip_prefix(r"\\?\UNC\") {
+        path = format!(r"\\{normal}");
+    } else if let Some(normal) = path.strip_prefix(r"\\?\") {
+        path = normal.to_owned();
+    }
+    path
 }
 
 pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Result<Snapshot> {
@@ -279,6 +291,7 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
     Ok(Snapshot {
         project: project_info(&repo)?,
         head: head_name,
+        operation_state: operations::operation_state(&repo),
         head_oid: head_oid.map(|o| o.to_string()),
         branches: branches
             .iter()
@@ -287,6 +300,26 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
                 oid: b.tip_oid.to_string(),
                 is_head: b.is_head,
                 is_remote: b.is_remote,
+                upstream: if b.is_remote {
+                    None
+                } else {
+                    repo.find_branch(&b.name, git2::BranchType::Local)
+                        .ok()
+                        .and_then(|branch| branch.upstream().ok())
+                        .and_then(|branch| branch.name().ok().flatten().map(str::to_owned))
+                },
+                local_name: if b.is_remote {
+                    repo.branch_remote_name(&format!("refs/remotes/{}", b.name))
+                        .ok()
+                        .and_then(|remote| remote.as_str().map(str::to_owned))
+                        .and_then(|remote| {
+                            b.name
+                                .strip_prefix(&format!("{remote}/"))
+                                .map(str::to_owned)
+                        })
+                } else {
+                    None
+                },
             })
             .collect(),
         rows,
