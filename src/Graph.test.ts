@@ -7,6 +7,25 @@ import type { Cell } from './types';
 const cell = (kind: string, color = 0): Cell => ({ kind, color, secondary: color });
 
 describe('Git 圖譜節點連線', () => {
+  it('交叉線分別套用 highlight，切換時清除前一條線', async () => {
+    const graph = mount(Graph, {
+      props: {
+        cells: [cell('cross')],
+        lanes: 0,
+        connector: true,
+        highlightedCells: [{ secondary: true }],
+      },
+    });
+    expect(graph.findAll('.graph-stroke path')[0].classes()).toContain('graph-line-highlight');
+    expect(graph.findAll('.graph-stroke path')[1].classes()).not.toContain('graph-line-highlight');
+    await graph.setProps({ highlightedCells: [{ primary: true }] });
+    expect(graph.findAll('.graph-stroke path')[0].classes()).not.toContain('graph-line-highlight');
+    expect(graph.findAll('.graph-stroke path')[1].classes()).toContain('graph-line-highlight');
+    await graph.setProps({ highlightedCells: undefined });
+    expect(graph.findAll('.graph-line-highlight')).toHaveLength(0);
+    expect(graph.find('.graph-glow').exists()).toBe(false);
+  });
+
   it('第一筆 commit 從圓點向下畫線，不向上多畫半條線', () => {
     const graph = mount(Graph, {
       props: { cells: [cell('commit')], lanes: 0, connector: false },

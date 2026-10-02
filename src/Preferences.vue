@@ -156,6 +156,17 @@ onMounted(() => back.value?.focus());
               :checked="model.highlightHead"
               @change="update({ highlightHead: ($event.target as HTMLInputElement).checked })"
           /></label>
+          <label class="preference-row"
+            ><span
+              ><strong>選取 commit 時高亮整條線</strong
+              ><small>以光暈標示選取 commit 所屬的整條分支線。</small></span
+            ><input
+              type="checkbox"
+              :checked="model.highlightSelectedLine"
+              @change="
+                update({ highlightSelectedLine: ($event.target as HTMLInputElement).checked })
+              "
+          /></label>
         </section>
         <section class="preferences-section" aria-labelledby="preferences-history">
           <h2 id="preferences-history">列表與時間</h2>

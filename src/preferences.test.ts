@@ -18,6 +18,7 @@ describe('偏好設定保存與還原', () => {
           defaultCommitLimit: 123,
           density: 'unknown',
           use24HourTime: 'false',
+          highlightSelectedLine: 'false',
         }),
       ),
     ).toEqual({
@@ -34,6 +35,7 @@ describe('偏好設定保存與還原', () => {
       followBranchColor: true,
       followTagColor: true,
       highlightHead: false,
+      highlightSelectedLine: false,
       fontFamily: 'Microsoft JhengHei',
       codeFontFamily: 'Consolas',
       fontSize: 18,
@@ -51,5 +53,11 @@ describe('偏好設定保存與還原', () => {
     expect(fontStack('Name, With "Quotes"', 'sans-serif')).toBe(
       '"Name, With \\"Quotes\\"", sans-serif',
     );
+  });
+  it('既有設定缺少高亮開關時預設開啟，儲存的關閉設定仍會還原', () => {
+    expect(restorePreferences('{"version":1}').highlightSelectedLine).toBe(true);
+    expect(
+      restorePreferences('{"version":1,"highlightSelectedLine":false}').highlightSelectedLine,
+    ).toBe(false);
   });
 });

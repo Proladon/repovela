@@ -80,33 +80,10 @@ async function switchBranch() {
   <div
     class="git-actions"
     aria-label="Git 操作"
+    :title="!native ? '桌面版可執行 Git 操作' : undefined"
     @keydown.esc.stop="branchesOpen = false"
     @contextmenu="openMenu"
   >
-    <div v-if="state !== 'clean'" class="operation-state" role="status">
-      <span>{{ stateName }} 進行中，請解決衝突並暫存檔案。</span>
-      <template v-if="state !== 'unsupported'">
-        <button
-          class="soft-button icon-button git-icon-action"
-          :disabled="!native || busy || snapshot.workingFiles.some((f) => f.conflict)"
-          title="繼續目前操作"
-          aria-label="繼續目前操作"
-          @click="operate({ operation: 'continueOperation' })"
-        >
-          <Play :size="16" />
-        </button>
-        <button
-          class="soft-button icon-button git-icon-action"
-          :disabled="!native || busy"
-          title="中止目前操作，還原操作前的狀態"
-          aria-label="中止目前操作"
-          @click="operate({ operation: 'abortOperation' })"
-        >
-          <Undo2 :size="16" />
-        </button>
-      </template>
-      <span v-else>請先在 Git 中完成此操作。</span>
-    </div>
     <button
       class="soft-button icon-button git-icon-action"
       :disabled="!native || busy"
@@ -186,7 +163,32 @@ async function switchBranch() {
         </div>
       </template>
     </div>
-    <span v-if="busy" class="subtle" role="status">正在執行 Git 操作…</span>
-    <span v-else-if="!native" class="subtle">桌面版可執行 Git 操作</span>
+    <Teleport defer to="#git-operation-status">
+      <div v-if="state !== 'clean'" class="operation-state" role="status">
+        <span>{{ stateName }} 進行中，請解決衝突並暫存檔案。</span>
+        <template v-if="state !== 'unsupported'">
+          <button
+            class="soft-button icon-button git-icon-action"
+            :disabled="!native || busy || snapshot.workingFiles.some((f) => f.conflict)"
+            title="繼續目前操作"
+            aria-label="繼續目前操作"
+            @click="operate({ operation: 'continueOperation' })"
+          >
+            <Play :size="16" />
+          </button>
+          <button
+            class="soft-button icon-button git-icon-action"
+            :disabled="!native || busy"
+            title="中止目前操作，還原操作前的狀態"
+            aria-label="中止目前操作"
+            @click="operate({ operation: 'abortOperation' })"
+          >
+            <Undo2 :size="16" />
+          </button>
+        </template>
+        <span v-else>請先在 Git 中完成此操作。</span>
+      </div>
+      <span v-if="busy" class="subtle" role="status">正在執行 Git 操作…</span>
+    </Teleport>
   </div>
 </template>

@@ -133,6 +133,56 @@ afterEach(() => {
 });
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('選取 commit 會標亮整條線與 connector，切換 commit 時更新整條線', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      maxLane: 1,
+      rows: [
+        {
+          ...snapshot(path).rows[0],
+          cells: [
+            { kind: 'commit', color: 9, secondary: 9 },
+            { kind: 'empty', color: 0, secondary: 0 },
+            { kind: 'pipe', color: 1, secondary: 1 },
+          ],
+        },
+        {
+          commit: null,
+          branches: [],
+          tags: [],
+          isHead: false,
+          cells: [
+            { kind: 'pipe', color: 9, secondary: 9 },
+            { kind: 'empty', color: 0, secondary: 0 },
+            { kind: 'pipe', color: 1, secondary: 1 },
+          ],
+        },
+        {
+          ...snapshot(path).rows[1],
+          cells: [
+            { kind: 'pipe', color: 9, secondary: 9 },
+            { kind: 'empty', color: 0, secondary: 0 },
+            { kind: 'commit', color: 1, secondary: 1 },
+          ],
+        },
+      ],
+    }));
+    const { container } = render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const lines = () =>
+      Array.from(container.querySelectorAll('.graph-svg')).map((graph) =>
+        Array.from(graph.querySelectorAll('.graph-stroke')).findIndex((group) =>
+          group.querySelector('.graph-line-highlight'),
+        ),
+      );
+    expect(lines()).toEqual([2, 2, 2]);
+    await fireEvent.click(document.getElementById(`commit-${commits[0].oid}`)!);
+    expect(lines()).toEqual([0, 0, 0]);
+    await fireEvent.keyDown(window, { key: 'ArrowDown' });
+    expect(lines()).toEqual([2, 2, 2]);
+  });
+
   it.each([1, 2, 8])('commit 整列右鍵僅提供一個同步入口，有 %s 個遠端標籤', async (count) => {
     saveProjects();
     mocked.repository.mockImplementation(async (path: string) => ({
@@ -1362,6 +1412,35 @@ describe('桌面分頁與瀏覽互動', () => {
     );
     await waitFor(() => expect(screen.queryByLabelText('建立並切換分支')).toBeNull());
   });
+  it('整條線高亮可關閉並保存，重開後可重新啟用且保留 commit 選取', async () => {
+    saveProjects();
+    const app = render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(document.querySelector('.graph-glow')).not.toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
+    await fireEvent.click(screen.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }));
+    await fireEvent.click(screen.getByRole('button', { name: '返回工作區' }));
+    expect(document.querySelector('.graph-glow, .graph-node-highlight')).toBeNull();
+    expect(document.querySelector('.graph-head-node')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).highlightSelectedLine).toBe(false);
+    expect(document.querySelector('.commit-row.selected')?.id).toBe(`commit-${commits[1].oid}`);
+
+    app.unmount();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(document.querySelector('.graph-glow, .graph-node-highlight')).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
+    const toggle = screen.getByRole('checkbox', {
+      name: /^選取 commit 時高亮整條線/,
+    }) as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    await fireEvent.click(toggle);
+    await fireEvent.click(screen.getByRole('button', { name: '返回工作區' }));
+    expect(document.querySelector('.graph-glow')).not.toBeNull();
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).highlightSelectedLine).toBe(true);
+    expect(document.querySelector('.commit-row.selected')?.id).toBe(`commit-${commits[1].oid}`);
+  });
+
   it('偏好設定即時切換標籤配色與 HEAD 樣式，重設不改動已開啟分頁', async () => {
     saveProjects();
     render(App);

@@ -42,7 +42,7 @@ import { provideContextMenu, type MenuItem } from './contextMenu';
 import ColumnHeading from './ColumnHeading.vue';
 import PreferencesPage from './Preferences.vue';
 import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
-import { graphColor } from './graph';
+import { graphColor, selectedGraphLine, type GraphGlowRow } from './graph';
 import Graph from './Graph.vue';
 import ProjectItem from './ProjectItem.vue';
 import { emptySession, restoreSession, sessionReducer, STORAGE_KEY } from './session';
@@ -187,6 +187,19 @@ const resource = computed(() => {
   return cached?.key === key.value ? cached : undefined;
 });
 const snapshot = computed(() => resource.value?.data);
+const highlightedGraph = computed(() =>
+  preferences.value.highlightSelectedLine
+    ? selectedGraphLine(snapshot.value?.rows ?? [], tab.value?.selection)
+    : [],
+);
+const graphGlowRows = computed(() =>
+  (snapshot.value?.rows ?? []).map((row, i): GraphGlowRow => ({
+    cells: row.cells,
+    previousCells: snapshot.value?.rows[i - 1]?.cells,
+    highlightedCells: highlightedGraph.value[i] ?? [],
+    height: row.commit ? rowHeight.value : connectorHeight.value,
+  })),
+);
 const currentBranch = computed(() => snapshot.value?.branches.find((b) => b.isHead && !b.isRemote));
 const primaryBranches = computed(() =>
   (snapshot.value?.branches ?? [])
@@ -1100,6 +1113,14 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="toolbar-actions">
+              <GitActions
+                ref="gitActions"
+                v-if="snapshot"
+                :key="tab.path"
+                :snapshot="snapshot"
+                :busy="operating || loading"
+                :operate="operate"
+              />
               <button
                 ref="primaryBranchButton"
                 class="soft-button icon-button git-icon-action"
@@ -1158,14 +1179,7 @@ onUnmounted(() => {
               </button>
             </div>
           </div>
-          <GitActions
-            ref="gitActions"
-            v-if="snapshot"
-            :key="tab.path"
-            :snapshot="snapshot"
-            :busy="operating || loading"
-            :operate="operate"
-          />
+          <div id="git-operation-status" class="git-operation-status" />
           <div class="repo-meta">
             <span
               ><GitBranch :size="12" />{{
@@ -1212,9 +1226,20 @@ onUnmounted(() => {
                 :style="{ '--detail-width': `${detailWidth}%` }"
               >
                 <section class="history-panel" aria-label="Git 歷史">
-                  <div class="panel-heading">
-                    <span>{{ 'Commit 歷史' }}</span
-                    ><span class="subtle">{{ '所有分支' }}</span>
+                  <label class="history-search"
+                    ><Search :size="15" /><input
+                      id="history-search"
+                      placeholder="搜尋訊息、作者、SHA 或分支"
+                      aria-label="搜尋 commit"
+                      :value="query"
+                      @input="setQuery(($event.target as HTMLInputElement).value)"
+                      @keydown="jumpSearch" /><template v-if="query"
+                      ><small>{{ matches.length }}<!---->{{ ' 筆' }}</small
+                      ><button class="icon-button" aria-label="清除搜尋" @click="setQuery('')">
+                        <X :size="13" /></button></template
+                    ><template v-else
+                      ><kbd>{{ 'Ctrl F' }}</kbd></template
+                    >
                     <button
                       v-if="!detailVisible"
                       ref="showDetailRef"
@@ -1224,25 +1249,8 @@ onUnmounted(() => {
                       aria-controls="commit-detail"
                       @click="detailVisible = true"
                     >
-                      <PanelRightOpen :size="16" />
-                    </button>
-                  </div>
-                  <label class="history-search"
-                    ><Search :size="15" /><input
-                      id="history-search"
-                      placeholder="搜尋訊息、作者、SHA 或分支"
-                      aria-label="搜尋 commit"
-                      :value="query"
-                      @input="setQuery(($event.target as HTMLInputElement).value)"
-                      @keydown="jumpSearch"
-                    /><template v-if="query"
-                      ><small>{{ matches.length }}<!---->{{ ' 筆' }}</small
-                      ><button class="icon-button" aria-label="清除搜尋" @click="setQuery('')">
-                        <X :size="13" /></button></template
-                    ><template v-else
-                      ><kbd>{{ 'Ctrl F' }}</kbd></template
-                    ></label
-                  >
+                      <PanelRightOpen :size="16" /></button
+                  ></label>
                   <div class="history-scroll" ref="historyRef" @scroll="rememberScroll">
                     <button
                       id="commit-worktree"
@@ -1287,6 +1295,9 @@ onUnmounted(() => {
                             <Graph
                               :cells="row.cells"
                               :previous-cells="snapshot.rows[i - 1]?.cells"
+                              :highlighted-cells="highlightedGraph[i]"
+                              :previous-glow="graphGlowRows[i - 1]"
+                              :next-glow="graphGlowRows[i + 1]"
                               :lanes="snapshot.maxLane"
                               :connector="false"
                               :is-head="row.isHead && preferences.highlightHead"
@@ -1340,6 +1351,9 @@ onUnmounted(() => {
                             <Graph
                               :cells="row.cells"
                               :previous-cells="snapshot.rows[i - 1]?.cells"
+                              :highlighted-cells="highlightedGraph[i]"
+                              :previous-glow="graphGlowRows[i - 1]"
+                              :next-glow="graphGlowRows[i + 1]"
                               :lanes="snapshot.maxLane"
                               :connector="true"
                               :connector-height="connectorHeight"

@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Cell } from './types';
-import { graphColor } from './graph';
+import { connectsFromAbove, graphColor, type GraphGlowRow, type HighlightedCell } from './graph';
 
 const props = defineProps<{
   cells: Cell[];
   previousCells?: Cell[];
+  highlightedCells?: HighlightedCell[];
+  previousGlow?: GraphGlowRow;
+  nextGlow?: GraphGlowRow;
   lanes: number;
   connector: boolean;
   isHead?: boolean;
@@ -17,21 +20,21 @@ const height = computed(() =>
 );
 const mid = computed(() => height.value / 2);
 const width = computed(() => (props.lanes + 1) * 20 + 16);
-function segments(cell: Cell, x: number, index: number) {
-  const h = height.value,
-    m = mid.value;
+function segments(
+  cell: Cell,
+  x: number,
+  index: number,
+  h = height.value,
+  previousCells = props.previousCells,
+) {
+  const m = h / 2;
   const top = `M${x} 0 V${h}`;
   switch (cell.kind) {
     case 'pipe':
       return top;
     case 'commit': {
       // Only extend upward when the previous row has a downward edge in this lane.
-      const above = props.previousCells?.[index]?.kind;
-      const connected =
-        above &&
-        ['pipe', 'commit', 'branchRight', 'branchLeft', 'teeRight', 'teeLeft', 'cross'].includes(
-          above,
-        );
+      const connected = connectsFromAbove(previousCells?.[index]);
       return `M${x} ${connected ? 0 : m} V${h}`;
     }
     case 'horizontal':
@@ -56,6 +59,43 @@ function segments(cell: Cell, x: number, index: number) {
       return '';
   }
 }
+
+const glowSegments = computed(() => {
+  // Blur adjacent rows together before the SVG viewport clips the result.
+  // This keeps the glow uniform at row boundaries and between horizontal cells.
+  const rows = [
+    { row: props.previousGlow, offset: -(props.previousGlow?.height ?? 0) },
+    {
+      row: {
+        cells: props.cells,
+        previousCells: props.previousCells,
+        highlightedCells: props.highlightedCells ?? [],
+        height: height.value,
+      },
+      offset: 0,
+    },
+    { row: props.nextGlow, offset: height.value },
+  ];
+  return rows.flatMap(
+    ({ row, offset }) =>
+      row?.cells.flatMap((cell, i) => {
+        const paths: { d: string; color: number; offset: number }[] = [];
+        const highlighted = row.highlightedCells[i];
+        const x = 18 + i * 10;
+        if (highlighted?.primary) {
+          paths.push({
+            d: segments(cell, x, i, row.height, row.previousCells),
+            color: cell.color,
+            offset,
+          });
+        }
+        if (cell.kind === 'cross' && highlighted?.secondary) {
+          paths.push({ d: `M${x} 0 V${row.height}`, color: cell.secondary, offset });
+        }
+        return paths;
+      }) ?? [],
+  );
+});
 </script>
 
 <template>
@@ -66,19 +106,35 @@ function segments(cell: Cell, x: number, index: number) {
     class="graph-svg"
     :style="{ '--graph-width': `${width}px` }"
   >
+    <g v-if="glowSegments.length" class="graph-glow" fill="none" stroke-width="6">
+      <path
+        v-for="(segment, i) in glowSegments"
+        :key="i"
+        :d="segment.d"
+        :stroke="graphColor(segment.color)"
+        :transform="`translate(0 ${segment.offset})`"
+      />
+    </g>
     <g
       v-for="(cell, i) in cells"
       :key="i"
+      class="graph-stroke"
       :stroke="graphColor(cell.color)"
+      :style="{ color: graphColor(cell.color) }"
       stroke-width="1.8"
       fill="none"
     >
       <path
         v-if="cell.kind === 'cross'"
+        :class="{ 'graph-line-highlight': highlightedCells?.[i]?.secondary }"
         :d="`M${18 + i * 10} 0 V${height}`"
         :stroke="graphColor(cell.secondary)"
+        :style="{ color: graphColor(cell.secondary) }"
       />
-      <path :d="segments(cell, 18 + i * 10, i)" />
+      <path
+        :class="{ 'graph-line-highlight': highlightedCells?.[i]?.primary }"
+        :d="segments(cell, 18 + i * 10, i)"
+      />
       <circle
         v-if="cell.kind === 'commit' && isHead"
         class="graph-head-ring"
@@ -91,7 +147,10 @@ function segments(cell: Cell, x: number, index: number) {
       />
       <circle
         v-if="cell.kind === 'commit'"
-        :class="{ 'graph-head-node': isHead }"
+        :class="{
+          'graph-head-node': isHead,
+          'graph-node-highlight': highlightedCells?.[i]?.primary,
+        }"
         :cx="18 + i * 10"
         :cy="mid"
         :r="isHead ? 5.5 : 4.3"

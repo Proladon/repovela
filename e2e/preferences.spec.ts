@@ -29,6 +29,7 @@ for (const viewport of [
     await settings.getByRole('checkbox', { name: /^分支標籤跟隨分支線顏色/ }).check();
     await settings.getByRole('checkbox', { name: /^Git 標籤跟隨分支線顏色/ }).check();
     await settings.getByRole('checkbox', { name: /^醒目顯示 HEAD 節點/ }).uncheck();
+    await settings.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }).uncheck();
     await settings.getByLabel('介面字體', { exact: true }).fill('Consolas');
     await settings.getByLabel('程式碼字體', { exact: true }).fill('Courier New');
     const fontSizeInput = settings.getByRole('spinbutton', { name: '字體大小', exact: true });
@@ -66,6 +67,7 @@ for (const viewport of [
         .evaluate((element) => getComputedStyle(element).color),
     ).toBe(color);
     await expect(page.locator('.graph-head-node')).toHaveCount(0);
+    await expect(page.locator('.graph-glow, .graph-node-highlight')).toHaveCount(0);
     expect((await head.boundingBox())!.height).toBe(rowHeight);
     await expect(head.locator('.graph-svg')).toHaveAttribute('height', String(rowHeight));
     const rowBounds = (await head.boundingBox())!;
@@ -99,6 +101,7 @@ for (const viewport of [
     await page.screenshot({ path: testInfo.outputPath('customized-history.png') });
 
     await page.reload();
+    await expect(page.locator('.graph-glow, .graph-node-highlight')).toHaveCount(0);
     await expect(
       page.locator('.commit-row[aria-current="true"] .branch-badge.follows-line').first(),
     ).toBeVisible();
@@ -108,6 +111,9 @@ for (const viewport of [
       String(fontSize),
     );
     await expect(settings.getByLabel('介面字體', { exact: true })).toHaveValue('Consolas');
+    await expect(
+      settings.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }),
+    ).not.toBeChecked();
     await settings.getByRole('button', { name: '返回工作區' }).click();
     await page.locator('.add-project').click();
     await page.getByRole('dialog').getByRole('button', { name: '加入專案', exact: true }).click();
@@ -134,8 +140,12 @@ for (const viewport of [
       '13',
     );
     await expect(settings.getByLabel('介面字體', { exact: true })).toHaveValue('');
+    await expect(
+      settings.getByRole('checkbox', { name: /^選取 commit 時高亮整條線/ }),
+    ).toBeChecked();
     await settings.getByRole('button', { name: '返回工作區' }).click();
     await expect(page.locator('.graph-head-node')).toHaveCount(1);
+    expect(await page.locator('.graph-glow').count()).toBeGreaterThan(0);
     await expect(page.locator('.branch-badge.follows-line')).toHaveCount(0);
     expect((await head.boundingBox())!.height).toBe(52);
     expect(

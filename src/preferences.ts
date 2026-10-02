@@ -3,6 +3,7 @@ export interface Preferences {
   followBranchColor: boolean;
   followTagColor: boolean;
   highlightHead: boolean;
+  highlightSelectedLine: boolean;
   fontFamily: string;
   codeFontFamily: string;
   fontSize: number;
@@ -20,6 +21,7 @@ export const defaultPreferences: Preferences = {
   followBranchColor: false,
   followTagColor: false,
   highlightHead: true,
+  highlightSelectedLine: true,
   fontFamily: '',
   codeFontFamily: 'Cascadia Code',
   fontSize: 13,
@@ -42,6 +44,7 @@ export function restorePreferences(raw: string | null): Preferences {
       'followBranchColor',
       'followTagColor',
       'highlightHead',
+      'highlightSelectedLine',
       'use24HourTime',
       'showColumnDividers',
       'defaultRemotes',

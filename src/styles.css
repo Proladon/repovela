@@ -369,6 +369,9 @@ pre {
   font-size: calc(17px * var(--font-scale, 1));
   letter-spacing: -0.2px;
   margin: 0 0 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .repo-title > div {
   min-width: 0;
@@ -386,6 +389,7 @@ pre {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 .soft-button {
   display: flex;
@@ -411,11 +415,20 @@ pre {
 }
 .git-actions {
   display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.git-operation-status {
+  display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 10px 24px;
   border-bottom: 1px solid var(--border);
+}
+.git-operation-status:empty {
+  display: none;
 }
 .soft-button.git-icon-action,
 .popover .git-icon-action {
@@ -492,6 +505,7 @@ pre {
 }
 .operation-state {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   color: var(--accent);
@@ -503,8 +517,8 @@ pre {
 }
 .git-branch-menu {
   position: absolute;
-  top: 100%;
-  left: 0;
+  top: calc(100% + 8px);
+  right: 0;
   width: 260px;
   padding: 14px;
 }
@@ -845,6 +859,13 @@ pre {
 .graph-svg {
   display: block;
   flex-shrink: 0;
+}
+.graph-glow {
+  filter: blur(3px);
+  opacity: 0.75;
+}
+.graph-node-highlight {
+  filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 3px currentColor);
 }
 .commit-text {
   padding: var(--commit-text-padding, 9px 12px 6px);
