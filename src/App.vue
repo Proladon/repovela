@@ -29,11 +29,13 @@ import {
   Undo2,
   Search,
   Settings2,
+  SquareTerminal,
   X,
 } from 'lucide-vue-next';
 import { api, chooseProjects, demo, native } from './api';
 import Detail from './Detail.vue';
 import WindowTitlebar from './WindowTitlebar.vue';
+import TerminalPanel from './TerminalPanel.vue';
 import GitActions from './GitActions.vue';
 import ContextMenu from './ContextMenu.vue';
 import CommitActionDialog from './CommitActionDialog.vue';
@@ -119,6 +121,10 @@ const dispatch = (action: Action) => {
       const remaining = new Map(resources.value);
       remaining.delete(previousTab.path);
       resources.value = remaining;
+      terminalPaths.value = terminalPaths.value.filter((path) => path !== previousTab.path);
+      visibleTerminalPaths.value = visibleTerminalPaths.value.filter(
+        (path) => path !== previousTab.path,
+      );
     }
   }
   session.value = next;
@@ -148,6 +154,37 @@ const pendingBranchFocus = shallowRef<{ path: string; branch: Branch } | null>(n
 const help = ref(false);
 const settingsOpen = ref(false);
 const settingsButton = ref<HTMLButtonElement | null>(null);
+const terminalPaths = ref<string[]>([]);
+const visibleTerminalPaths = ref<string[]>([]);
+const terminalTabs = computed(() =>
+  session.value.tabs.filter((t) => terminalPaths.value.includes(t.path)),
+);
+const terminalVisible = computed(
+  () => !!tab.value && visibleTerminalPaths.value.includes(tab.value.path),
+);
+function toggleTerminal() {
+  if (!native || !tab.value) return;
+  const path = tab.value.path;
+  if (terminalVisible.value) hideTerminal(path);
+  else {
+    if (!terminalPaths.value.includes(path)) terminalPaths.value = [...terminalPaths.value, path];
+    visibleTerminalPaths.value = [...visibleTerminalPaths.value, path];
+  }
+}
+function hideTerminal(path: string) {
+  visibleTerminalPaths.value = visibleTerminalPaths.value.filter((p) => p !== path);
+  refreshTerminalProject(path);
+}
+function closeTerminal(path: string) {
+  hideTerminal(path);
+  terminalPaths.value = terminalPaths.value.filter((p) => p !== path);
+}
+function refreshTerminalProject(path: string) {
+  const target = session.value.tabs.find((t) => t.path === path);
+  if (!target || operating.value) return;
+  if (target.path === tab.value?.path) reloadRepository();
+  else loadRepository(true, target);
+}
 const fontScale = computed(() => preferences.value.fontSize / 13);
 const rowHeight = computed(() =>
   Math.max(44, Math.round((preferences.value.density === 'compact' ? 44 : 52) * fontScale.value)),
@@ -874,6 +911,21 @@ async function addProject() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (
+    (e.ctrlKey || e.metaKey) &&
+    e.code === 'Backquote' &&
+    !settingsOpen.value &&
+    !ownershipIssue.value &&
+    !commitAction.value &&
+    !syncBranchAction.value &&
+    !pathDialog.value &&
+    !help.value
+  ) {
+    e.preventDefault();
+    toggleTerminal();
+    return;
+  }
+  if (e.target instanceof HTMLElement && e.target.closest('.terminal-panel')) return;
   if (ownershipIssue.value) {
     if (e.key === 'Escape' && !trusting.value && !adding.value) ownershipIssues.value.shift();
     return;
@@ -1125,6 +1177,16 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="toolbar-actions">
+              <button
+                class="soft-button icon-button git-icon-action"
+                :disabled="!native"
+                :title="native ? '開啟／隱藏終端機（Ctrl / ⌘ `）' : '終端機請使用桌面版'"
+                aria-label="開啟／隱藏終端機"
+                :aria-pressed="terminalVisible"
+                @click="toggleTerminal"
+              >
+                <SquareTerminal :size="15" />
+              </button>
               <GitActions
                 ref="gitActions"
                 v-if="snapshot"
@@ -1424,9 +1486,27 @@ onUnmounted(() => {
                   />
                 </div></div></template
           ></template>
+          <TerminalPanel
+            v-for="terminalTab in terminalTabs"
+            :key="terminalTab.path"
+            v-show="terminalTab.path === tab.path && terminalVisible"
+            :path="terminalTab.path"
+            :active="terminalTab.path === tab.path && terminalVisible && !settingsOpen"
+            :font-family="fontStack(preferences.codeFontFamily, 'Consolas, monospace')"
+            :font-size="preferences.fontSize"
+            @hide="hideTerminal(terminalTab.path)"
+            @close="closeTerminal(terminalTab.path)"
+            @refresh="refreshTerminalProject(terminalTab.path)"
+          />
           <footer class="status-bar">
-            <span class="status-dot" /><span>{{
-              loading ? '正在更新…' : error ? '讀取失敗' : '已同步本機資料'
+            <span class="status-dot" /><span role="status">{{
+              operating
+                ? '正在執行 Git 操作…'
+                : loading
+                  ? '正在更新…'
+                  : error
+                    ? '讀取失敗'
+                    : '已同步本機資料'
             }}</span
             ><span class="meta-spacer" /><span>{{ 'j / k 瀏覽' }}</span
             ><span>{{ '@ 跳至 HEAD' }}</span
@@ -1527,6 +1607,7 @@ onUnmounted(() => {
                   ['Ctrl / ⌘ Tab', '下一個專案'],
                   ['Ctrl / ⌘ Shift Tab', '上一個專案'],
                   ['Ctrl / ⌘ F', '搜尋 commit'],
+                  ['Ctrl / ⌘ `', '開啟／隱藏終端機'],
                   ['Enter / Shift Enter', '下一筆 / 上一筆搜尋結果'],
                   ['j / k 或 ↑ / ↓', '選擇 commit'],
                   ['@', '跳至 HEAD'],

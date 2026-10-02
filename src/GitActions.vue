@@ -188,7 +188,6 @@ async function switchBranch() {
         </template>
         <span v-else>請先在 Git 中完成此操作。</span>
       </div>
-      <span v-if="busy" class="subtle" role="status">正在執行 Git 操作…</span>
     </Teleport>
   </div>
 </template>

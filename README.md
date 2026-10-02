@@ -10,6 +10,7 @@ Repovela 是以 [keifu](https://github.com/trasta298/keifu) 圖譜演算法為�
 - 專案或 `.git` 擁有者不同時，顯示「信任 Git 專案」確認視窗。確認後只將該專案的完整路徑加入 Git 全域 [safe.directory](https://git-scm.com/docs/git-config#Documentation/git-config.txt-safedirectory)；取消不更改設定。支援沒有遠端或尚無 commit 的本機儲存庫。
 - 專案清單、釘選、重新命名、移除；移除只會改變應用程式清單。
 - 每個專案一個分頁；關閉後仍可從清單開啟。
+- 整合互動式終端機：按工具列的終端機圖示或 `Ctrl / ⌘` 加反引號，在專案根目錄直接輸入指令。每個專案有獨立 shell；隱藏與切換專案保留工作階段，結束終端機、關閉分頁或程式時清理程序。支援 Ctrl+C、清除畫面、重新啟動、拖曳／方向鍵調整面板高度；離開面板時重新讀取 Git 狀態，也可按面板的重新整理按鈕。
 - 重開還原專案、分頁、目前專案、選取的 commit、遠端顯示選項與歷史載入範圍。
 - 沿用 keifu 圖譜布局與色彩分配，改以 SVG 顯示。
 - Commit 訊息、作者、日期、分支、標籤、父 commit、變更檔案與文字 diff。
@@ -74,6 +75,8 @@ pnpm run tauri build --no-bundle
 ```text
 src/                         Vue 3 + TypeScript 桌面介面與本機 session
 src-tauri/src/lib.rs          Tauri IPC，背景執行 Git 讀取與操作
+src/TerminalPanel.vue         xterm.js 終端機與尺寸同步
+src-tauri/src/terminal.rs     portable-pty shell、串流與工作階段清理
 src-tauri/core/src/lib.rs     儲存庫、commit、工作區與 diff adapter
 src-tauri/core/src/operations.rs Git CLI 基本操作
 src-tauri/core/src/git/       keifu Git 資料結構與圖譜演算法
@@ -83,6 +86,8 @@ src-tauri/core/src/graph/     keifu 色彩分配演算法
 瀏覽使用 libgit2；Git 操作需要 Git 2.23+ 的 `git` 執行檔可從 PATH 啟動，沿用本機作者設定、hooks 與憑證設定，不會開啟終端機視窗。提交前請設定 `user.name` 與 `user.email`。遠端操作停用互動式登入；需要驗證時，請先在 Git 中完成憑證或 SSH 設定。展示模式僅供瀏覽。
 
 專案與分頁狀態儲存於 WebView 的本機儲存空間；重開保留資料，清除此應用程式的 WebView 資料會重設清單。
+
+終端機採用與 VS Code 相同的 [xterm.js](https://code.visualstudio.com/docs/terminal/advanced) 前端。VS Code 使用 node-pty；Repovela 的 Tauri 後端使用 [portable-pty](https://docs.rs/portable-pty/)（Windows ConPTY／Unix PTY），透過 Tauri Channel 串流原始 UTF-8 bytes。Windows 使用 `COMSPEC` 指定的 shell（通常是 cmd.exe，停用 cmd AutoRun），macOS／Linux 使用 `SHELL` 或 `/bin/sh`。指令沿用本機環境與權限，工作階段不跨應用程式重啟保存；最多同時 16 個終端機。終端機僅在桌面版可用。
 
 畫面測試使用改寫前 React 版本保存的 20 張基準圖片，涵蓋 1360×880、1000×640 兩種視窗尺寸。樣式檔與專案儲存格式維持不變。基準來源與比對範圍見 [e2e/BASELINES.md](e2e/BASELINES.md)。
 
@@ -97,6 +102,7 @@ Windows 桌面驗證可執行 `pnpm run validate:windows`，自動建置並測�
 | Ctrl / ⌘ Tab        | 下一個專案             |
 | Ctrl / ⌘ Shift Tab  | 上一個專案             |
 | Ctrl / ⌘ F          | 搜尋 commit            |
+| Ctrl / ⌘ + 反引號   | 開啟／隱藏終端機       |
 | Enter / Shift Enter | 下一筆／上一筆搜尋結果 |
 | j / k、↑ / ↓        | 選取 commit            |
 | @                   | 跳至 HEAD              |

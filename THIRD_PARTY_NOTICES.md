@@ -9,3 +9,5 @@
 - 授權：MIT，完整條文保留於 `LICENSE`。
 
 Repovela 是衍生專案，並非上游 keifu 的官方桌面版本。其他套件的授權由各套件自行提供。
+
+終端機使用 [xterm.js 與 FitAddon](https://github.com/xtermjs/xterm.js)（MIT）以及 [portable-pty](https://github.com/wezterm/wezterm/tree/main/pty)（MIT）。完整授權條文隨各套件提供。

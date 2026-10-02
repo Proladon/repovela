@@ -1924,6 +1924,61 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(screen.getByText('目前的 diff')).toBeTruthy();
   });
 
+  it.each(['隱藏終端機', '結束終端機'])('%s 更新 Git 資料時不插入進度區塊', async (name) => {
+    saveProjects();
+    render(App, {
+      global: {
+        stubs: {
+          TerminalPanel: {
+            emits: ['hide', 'close'],
+            template: `<section><button @click="$emit('hide')">隱藏終端機</button><button @click="$emit('close')">結束終端機</button></section>`,
+          },
+        },
+      },
+    });
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '開啟／隱藏終端機' }));
+    let finish!: (data: Snapshot) => void;
+    mocked.repository.mockImplementationOnce(
+      () =>
+        new Promise<Snapshot>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name }));
+    await screen.findByText('正在更新…');
+    expect(document.getElementById('git-operation-status')?.textContent?.trim()).toBe('');
+    expect(screen.queryByText('正在執行 Git 操作…')).toBeNull();
+    expect((screen.getByRole('button', { name: 'Fetch' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(screen.getByRole('region', { name: 'Git 歷史' })).toBeTruthy();
+    finish(snapshot('/a'));
+    await screen.findByText('已同步本機資料');
+    expect((screen.getByRole('button', { name: 'Fetch' }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
+  });
+
+  it('Git 操作進度顯示在既有底部狀態列', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    let finish!: (result: string) => void;
+    mocked.operate.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Fetch' }));
+    const progress = await screen.findByText('正在執行 Git 操作…');
+    expect(progress.closest('.status-bar')).toBeTruthy();
+    expect(document.getElementById('git-operation-status')?.textContent?.trim()).toBe('');
+    finish('ok');
+    await screen.findByText('專案 A：Git 操作已完成。');
+  });
+
   it('手動重新整理只更新目前專案與已開啟的 diff，R 也可更新', async () => {
     saveProjects();
     render(App);

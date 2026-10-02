@@ -1,4 +1,6 @@
 use repovela_core::{CommitDetail, FilePatch, GitRequest, Project, ProjectOpenError, Snapshot};
+use tauri::Manager;
+mod terminal;
 
 #[cfg(windows)]
 mod window_frame;
@@ -65,6 +67,12 @@ async fn read_patch(
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(terminal::Terminals::default())
+        .on_page_load(|webview, payload| {
+            if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {
+                webview.state::<terminal::Terminals>().close_all(false);
+            }
+        })
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             open_project,
@@ -72,11 +80,18 @@ pub fn run() {
             read_repository,
             read_commit,
             read_patch,
-            git_operation
+            git_operation,
+            terminal::open_terminal,
+            terminal::write_terminal,
+            terminal::resize_terminal,
+            terminal::close_terminal
         ])
         .build(tauri::generate_context!())
         .expect("無法啟動 Repovela")
         .run(|_app, _event| {
+            if matches!(_event, tauri::RunEvent::Exit) {
+                _app.state::<terminal::Terminals>().close_all(true);
+            }
             #[cfg(windows)]
             {
                 use tauri::Manager;

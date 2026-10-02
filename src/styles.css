@@ -613,6 +613,66 @@ pre {
 .workspace.detail-hidden {
   grid-template-columns: minmax(0, 1fr);
 }
+.terminal-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 140px;
+  max-height: 65vh;
+  min-width: 0;
+  background: #101216;
+  border-top: 1px solid var(--border);
+}
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  min-height: 36px;
+}
+.terminal-header strong {
+  font-size: 12px;
+}
+.terminal-status {
+  color: var(--muted);
+  font-size: 11px;
+}
+.terminal-host {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  margin: 2px 12px 8px;
+  overflow: hidden;
+}
+.terminal-host .xterm {
+  height: 100%;
+}
+.terminal-error {
+  color: #f28b82;
+  margin: 0 12px 4px;
+  max-height: 50px;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.terminal-resizer {
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  right: 0;
+  top: -4px;
+  height: 8px;
+  cursor: row-resize;
+  touch-action: none;
+}
+.terminal-resizer:hover,
+.terminal-resizer:focus-visible {
+  background: #b6a3f566;
+}
+.git-icon-action[aria-pressed='true'] {
+  color: var(--accent);
+  background: #b6a3f522;
+}
 .detail-container {
   position: relative;
   display: flex;
