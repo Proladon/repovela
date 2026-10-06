@@ -2,6 +2,12 @@ use repovela_core::{CommitDetail, FilePatch, GitRequest, Project, ProjectOpenErr
 use tauri::Manager;
 mod terminal;
 
+#[tauri::command]
+fn prepare_update_install(app: tauri::AppHandle) {
+    // Windows 更新器會直接結束程式，先清理仍在執行的 shell。
+    app.state::<terminal::Terminals>().close_all(false);
+}
+
 #[cfg(windows)]
 mod system_fonts;
 #[cfg(windows)]
@@ -94,7 +100,10 @@ pub fn run() {
             }
         })
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
+            prepare_update_install,
             list_system_fonts,
             open_project,
             trust_project,

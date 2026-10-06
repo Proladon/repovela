@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { PREFERENCES_KEY } from '../src/preferences';
 import { STORAGE_KEY } from '../src/session';
+import tauriConfig from '../src-tauri/tauri.conf.json' with { type: 'json' };
 
 for (const viewport of [
   { width: 1360, height: 880 },
@@ -17,6 +18,9 @@ for (const viewport of [
     await page.getByRole('button', { name: '偏好設定', exact: true }).click();
     const settings = page.getByRole('dialog', { name: '偏好設定' });
     await expect(settings.getByRole('heading', { name: '偏好設定' })).toBeVisible();
+    await expect(settings.getByRole('heading', { name: '版本與更新' })).toBeVisible();
+    await expect(settings.getByText(`v${tauriConfig.version}`, { exact: true })).toBeVisible();
+    await expect(settings.getByRole('button', { name: '檢查更新' })).toBeDisabled();
     await expect(settings.getByRole('button', { name: '關閉偏好設定' })).toBeFocused();
     await page.keyboard.press('Shift+Tab');
     await expect(settings.getByRole('button', { name: '還原預設設定' })).toBeFocused();

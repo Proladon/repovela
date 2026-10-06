@@ -32,6 +32,8 @@ Repovela 是以 [keifu](https://github.com/trasta298/keifu) 圖譜演算法為�
 
 ## Windows 試用
 
+偏好設定最上方的「版本與更新」顯示目前版本，提供檢查更新、版本說明、下載進度，以及下載驗證完成後的「安裝更新並重新啟動」。下載期間可關閉設定視窗，重新開啟會保留進度；檢查或下載失敗可重試。安裝會關閉所有終端機工作階段，正在執行 Git 操作時不可安裝。瀏覽器預覽只顯示建置版本，更新功能需使用桌面版。
+
 建置後開啟 `src-tauri/target/release/repovela.exe`，按「加入專案」選擇 Git 專案資料夾。可同時選擇多個資料夾。完成後，未來只需開啟這個應用程式。
 
 這是 Windows x64 可攜式版本，需要 Microsoft Edge WebView2 Runtime。應用程式沒有新增開機自動啟動設定；重開還原是在你再次啟動應用程式時生效。
@@ -69,6 +71,29 @@ pnpm run tauri build --no-bundle
 ```
 
 最後一個指令會產生 `src-tauri/target/release/repovela.exe`。移除 `--no-bundle` 即可建立平台安裝包。此版本只在 Windows 完成編譯驗證；macOS、Linux 尚未驗證。
+
+## 發布 Windows 更新
+
+更新使用 [Tauri Updater](https://v2.tauri.app/plugin/updater/) 驗證安裝包簽章，從此儲存庫最新正式 GitHub Release 的 `latest.json` 取得版本。建議使用 NSIS 安裝版；可攜式執行檔執行更新時會啟動安裝程式，改用安裝版，不會覆寫原本的可攜式檔案。
+
+簽章私鑰由維護者保存於 `%USERPROFILE%\.tauri\repovela.key`，對應公鑰設定於 `src-tauri/tauri.conf.json`。請保留並備份私鑰，後續版本必須使用同一把金鑰。
+
+首次發布前，在 GitHub 儲存庫的 Actions secrets 設定 `TAURI_SIGNING_PRIVATE_KEY` 為該私鑰檔案的完整內容。這把金鑰未設定密碼，因此 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 可留空。私鑰不得加入儲存庫；簽章需求與發布流程見 [Tauri 官方文件](https://v2.tauri.app/distribute/pipelines/github/)。
+
+1. 同步調整 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 的版本號，例如 `0.2.0`，並更新 lockfile。
+2. 推送相符的版本 tag（例如 `v0.2.0`），或手動執行 `.github/workflows/release.yml`。
+3. 工作流程執行測試、建置簽章 NSIS 安裝包，並建立含 `.exe`、`.sig` 與 `latest.json` 的 Release 草稿。
+4. 檢查安裝包及版本說明後，發布草稿為正式 Release。草稿與預發行版不會成為此更新來源。
+
+在首個正式 Release 發布前，「檢查更新」會顯示來源尚未發布或連線失敗，不會誤顯示為最新版本。
+
+本機建立簽章安裝包：
+
+```powershell
+$env:TAURI_SIGNING_PRIVATE_KEY = Join-Path $env:USERPROFILE '.tauri\repovela.key'
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
+pnpm run tauri build --bundles nsis
+```
 
 ## 架構
 
