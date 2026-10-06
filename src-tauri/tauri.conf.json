@@ -10,20 +10,42 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{
-      "label": "main",
-      "title": "Repovela",
-      "decorations": false,
-      "shadow": true,
-      "width": 1360,
-      "height": 880,
-      "minWidth": 1000,
-      "minHeight": 640,
-      "backgroundColor": "#111318"
-    }],
+    "windows": [
+      {
+        "label": "main",
+        "title": "Repovela",
+        "decorations": false,
+        "shadow": true,
+        "width": 1360,
+        "height": 880,
+        "minWidth": 1000,
+        "minHeight": 640,
+        "backgroundColor": "#111318"
+      }
+    ],
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
     }
   },
-  "bundle": { "active": true, "targets": "all", "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"] }
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBQzExQzk0NUU1NEI5NDEKUldSQnVWUmVsQnpCU3ZETThDMWc5cm5VSEU1bDZMb3MwYzZjYk9aWEFvQUlRY1NvYnhPS0xITmQK",
+      "windows": {
+        "installMode": "passive"
+      },
+      "endpoints": ["https://github.com/Proladon/repovela/releases/latest/download/latest.json"]
+    }
+  }
 }

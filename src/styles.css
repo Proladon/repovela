@@ -1590,6 +1590,50 @@ pre {
   color: var(--muted);
   line-height: 1.7;
 }
+.update-settings .soft-button {
+  justify-self: end;
+}
+.update-status {
+  color: var(--muted);
+  line-height: 1.6;
+  font-size: calc(12px * var(--font-scale, 1));
+}
+.update-error {
+  color: #f5a3a3;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: calc(11px * var(--font-scale, 1));
+}
+.update-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--muted);
+}
+.update-progress progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.update-notes {
+  margin-top: 16px;
+  font-size: calc(12px * var(--font-scale, 1));
+}
+.update-notes summary {
+  cursor: pointer;
+}
+.update-notes pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+  color: var(--muted);
+  font: inherit;
+  line-height: 1.7;
+}
+.update-actions {
+  margin-top: 16px;
+}
 .popover {
   position: absolute;
   background: #232731;

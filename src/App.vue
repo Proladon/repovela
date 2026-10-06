@@ -44,6 +44,7 @@ import TrustProjectDialog from './TrustProjectDialog.vue';
 import { provideContextMenu, type MenuItem } from './contextMenu';
 import ColumnHeading from './ColumnHeading.vue';
 import PreferencesDialog from './Preferences.vue';
+import { useAppUpdate } from './appUpdate';
 import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
 import { graphColor, selectedGraphLine, type GraphGlowRow } from './graph';
 import Graph from './Graph.vue';
@@ -81,6 +82,7 @@ const syncBranchAction = shallowRef<{
 } | null>(null);
 
 const storageKey = demo ? `${STORAGE_KEY}-demo` : STORAGE_KEY;
+const updater = useAppUpdate(() => !operating.value && !adding.value && !trusting.value);
 const preferencesStorageKey = demo ? `${PREFERENCES_KEY}-demo` : PREFERENCES_KEY;
 const preferences = shallowRef(
   (() => {
@@ -369,6 +371,7 @@ function openPreferences() {
   settingsOpen.value = true;
 }
 async function closePreferences() {
+  if (updater.state.phase === 'installing') return;
   settingsOpen.value = false;
   await nextTick();
   settingsButton.value?.focus();
@@ -1557,6 +1560,7 @@ onUnmounted(() => {
     <PreferencesDialog
       v-if="settingsOpen"
       v-model="preferences"
+      :updater="updater"
       @close="closePreferences"
       @reset="preferences = { ...defaultPreferences }"
     />

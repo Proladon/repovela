@@ -3,6 +3,10 @@ import { RotateCcw, X } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { listSystemFonts, native } from './api';
 import type { Preferences } from './preferences';
+import UpdateSettings from './UpdateSettings.vue';
+import type { AppUpdate } from './appUpdate';
+
+defineProps<{ updater: AppUpdate }>();
 
 const model = defineModel<Preferences>({ required: true });
 const emit = defineEmits<{ close: []; reset: [] }>();
@@ -21,7 +25,7 @@ function keydown(event: KeyboardEvent) {
   if (event.key !== 'Tab') return;
   const controls = Array.from(
     dialog.value?.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), input:not(:disabled), select:not(:disabled)',
+      'button:not(:disabled), input:not(:disabled), select:not(:disabled), summary',
     ) ?? [],
   );
   const first = controls[0];
@@ -88,6 +92,7 @@ onMounted(async () => {
           ref="closeButton"
           class="icon-button"
           aria-label="關閉偏好設定"
+          :disabled="updater.state.phase === 'installing'"
           title="關閉偏好設定（Esc）"
           @click="emit('close')"
         >
@@ -96,6 +101,7 @@ onMounted(async () => {
       </header>
       <div class="preferences-scroll">
         <div class="preferences-content">
+          <UpdateSettings :updater="updater" />
           <section class="preferences-section" aria-labelledby="preferences-typography">
             <h2 id="preferences-typography">字體</h2>
             <p v-if="fontListMessage" class="preferences-note" role="status">
