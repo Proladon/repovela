@@ -1,5 +1,59 @@
 # 驗證記錄
 
+## 2026-10-06：專案群組拖曳排序
+
+群組標題支援拖曳排序，展開、折疊及空群組皆可移動；透過原 session 保存群組順序，保留專案成員、釘選、折疊與分頁。搜尋中只交換可見群組，保留隱藏群組位置。外層 Sortable 使用獨立的預設群組，避免屬性更新重設具名群組後阻擋自身排序；群組與專案分別使用標題與專案列作為拖曳範圍。垂直排序及交換門檻支援巢狀清單。
+
+174 項前端測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。Windows／WebView2 完成空群組前後移動、含成員的折疊群組排序、搜尋排序保留隱藏群組及重開還原；原有跨群組專案移動、群組內排序、釘選與雙擊 Checkout 流程也通過。HEAD、index 與專案檔案內容不變。原生拖曳測試等待預覽抵達預期位置再放開，避免 fallback 計時器造成過早結束。已檢視更新後的 `sidebar-groups.png`。
+
+Tauri debug 編譯／連結完成，原執行檔使用中無法覆寫；將新版本另存為 `target/debug/repovela-group-order.exe` 完成原生驗證。本次未修改 Rust 邏輯。
+
+## 2026-10-06：側邊欄寬度與專案群組
+
+側邊欄右邊界支援拖曳、方向鍵調整與雙擊／Home 還原，寬度保存於偏好設定；依視窗寬度限制上限，保留主要內容空間，移除窄視窗覆蓋自訂寬度的舊樣式。專案庫可建立、改名、移除與折疊群組，拖曳專案至空的或折疊中的群組、跨群組移動、群組內排序及移回未分組清單。移動保留釘選狀態、分頁與目前專案；移除群組保留成員。搜尋暫時展開符合的群組，清空後恢復原折疊狀態。群組與成員關係保存於原 version 1 session，舊資料可直接還原，孤立群組關係回到未分組清單。
+
+172 項前端測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。新增 `e2e/windows/sidebar-groups.spec.ts`，在隔離的 Windows／WebView2 profile 與三個真實 Git 專案連續兩次完成所有拖曳情境、釘選保留、改名／刪除、搜尋與重開還原，確認實際側邊欄寬度及 1000×640 排版；HEAD、index 與檔案內容不變。測試等待 Sortable 的拖曳預覽抵達目標後才放開滑鼠，避免 fallback 計時器尚未更新的誤判。已檢視 `sidebar-groups.png`；原專案排序與雙擊 Checkout 桌面流程也通過。
+
+Tauri debug 編譯／連結完成，最後更新原執行檔因使用中的檔案鎖定失敗；將本次 `target/debug/deps/repovela.exe` 另存為 `target/debug/repovela-sidebar-groups.exe` 完成原生驗證，保留使用者執行中的程式。本次未修改 Rust 邏輯，未重跑 Rust 測試。
+
+## 2026-10-06：Tag 搜尋提示與確認
+
+既有搜尋已比對已載入 commit 的 tag，搜尋欄提示補上 tag。五項既有搜尋前端回歸、型別／Vite 建置及 Tauri debug 建置通過。於隔離的 Windows／WebView2 儲存庫實際確認附註 tag 與輕量 tag 可依名稱搜尋，支援大小寫、前後空白及部分名稱；Enter 定位到較舊的 tag commit，HEAD／index 不變。保存 `test-results/tag-search/tag-search.png`。此次 `target/debug/repovela.exe` 已成功更新。
+
+## 2026-10-06：Stash 無可儲存變更的顯示
+
+沒有可儲存變更時隱藏新增 Stash 的整個表單，以狀態文字取代，保留既有清單與 Apply／Pop／Drop。只有未追蹤檔案時仍顯示表單，讓使用者勾選包含；沒有 commit、進行中的 Git 操作或衝突時，隱藏新增表單並顯示原因。開啟乾淨工作區的視窗及儲存後表單消失時，焦點移到選取的 Stash 或關閉按鈕。
+
+四項 Stash 前端回歸、Vue 型別／Vite 建置、格式檢查及 Windows Stash 完整流程通過。原生流程確認儲存後不再顯示訊息輸入與儲存按鈕，既有 Stash 可繼續 Apply；已檢視更新後的清單畫面。原執行檔被鎖定，另存 `target/debug/repovela-stash-empty-state.exe` 完成原生驗證。
+
+## 2026-10-06：工作區右鍵 Stash
+
+工作區列、工作區檔案清單空白處與檔案右鍵選單加入 Stash 入口，沿用同一個管理視窗與忙碌／桌面模式防護。檔案入口標示「Stash 工作區…」，明確管理整個 repo。前端 163 項測試通過，更新既有 Stash 回歸涵蓋三個入口；最後檔案入口調整後再次通過四項 Stash 回歸、型別／Vite 建置及格式檢查。Windows Stash 流程透過工作區列與檔案右鍵開啟視窗，完成儲存、Apply、Pop、Drop 與衝突保留，全部通過。檔案右鍵測試先捲動並等待畫面穩定，避免自動捲動立即關閉選單。
+
+Tauri debug 編譯／連結完成，最後更新原執行檔因鎖定失敗；另存為 `target/debug/repovela-stash-context.exe` 完成原生驗證。
+
+## 2026-10-06：Stash 管理
+
+工具列與 Git 右鍵選單加入 Stash 管理視窗，支援訊息、選擇包含未追蹤檔案、清單、Apply、Pop、Drop 與還原暫存狀態。後端透過 refs/stash 的 reflog 讀取編號、hash、訊息與日期，沿用 Git CLI 與寫入鎖執行操作。Drop 需確認；Apply／Pop／Drop 執行前核對編號與 hash，拒絕過期或無效目標。拒絕沒有 commit／可儲存變更、進行中的 Git 操作與未解決衝突；Git 防止覆寫工作區變更，Pop 衝突時保留 Stash。操作後刷新原專案，切換專案關閉視窗。錯誤在視窗內顯示，長訊息可展開詳情，衝突明確標示原 Stash 保留。調整視窗層級，避免完成提示遮住操作按鈕。
+
+163 項前端測試、34 項 Rust 測試、Vue 型別／Vite 建置、Clippy、Rustfmt 及格式檢查通過；最後訊息顯示調整後再次通過四項 Stash 前端回歸。新增 `e2e/windows/stash.spec.ts`，於隔離的中文／空白路徑與 Git 設定，以真正 Windows／WebView2 完成部分暫存及未追蹤檔案的儲存、Apply、選擇較舊項目 Pop、取消／確認 Drop 及 Pop 衝突。核對工作區內容、index、HEAD、ignored 檔案與 stash refs；流程通過，已檢視 1000×640 的清單及衝突畫面。
+
+Tauri debug 編譯／連結完成，最後更新 `target/debug/repovela.exe` 因檔案被鎖定失敗。將本次 `target/debug/deps/repovela.exe` 另存為 `target/debug/repovela-stash.exe` 完成原生驗證。
+
+## 2026-10-06：開啟 repo 網站
+
+專案工具列加入外部連結圖示，使用 Tauri Opener 與預設瀏覽器開啟 repo。後端讀取遠端名稱與網址，前端將 HTTP(S)、SCP SSH、SSH URL 與 Git URL 轉成網站網址，移除 `.git`、認證資訊、query 與 fragment；略過本機路徑及無法解析的網址。多個可用遠端時提供選單、origin 優先，無網站遠端時停用並顯示原因。遠端分支隱藏時仍保留網站功能，展示模式連向 keifu 上游。
+
+159 項前端測試、29 項 Rust 測試、Vue 型別／Vite 建置、Tauri debug 桌面建置及格式檢查通過。新增 `e2e/windows/repository-website.spec.ts`，透過真實 Git 設定與 WebView2 驗證遠端資料、origin／upstream 選擇、專案隔離、1000×640 排版、隱藏遠端分支與不修改 Git 設定；原生 opener 拒絕 file URL。網站開啟的最後 IPC fetch 由測試攔截，先以 file URL 確認攔截生效，再核對兩個網站 URL。原生流程通過，已檢視選單截圖。此次 `target/debug/repovela.exe` 已成功更新。
+
+## 2026-10-06：專案拖拉排序與雙擊 Checkout
+
+使用 `vuedraggable` 4.1.0／SortableJS，釘選與一般專案各自拖拉排序，保存至 session；搜尋結果排序只交換可見專案，保留隱藏專案位置與分頁狀態。使用 fallback 拖曳以支援 Windows WebView2，附帶拖曳預覽與自動捲動。雙擊 commit 開啟既有 Checkout 視窗；雙擊本機分支標籤或分支列表直接切換，遠端分支開啟追蹤分支視窗。分支列表延後單擊跳轉，保留雙擊目標；分支標籤阻止雙擊事件冒泡至 commit，進行中的 Git 操作禁止 Checkout。
+
+137 項前端測試、Vue 型別／Vite 建置、格式及 diff 檢查通過。新增 `e2e/windows/project-interactions.spec.ts`，於隔離的中文路徑、Git 設定與 WebView2 profile，驗證兩種群組排序、跨群組保護、重啟還原、排序不切換專案，以及 commit／本機標籤／遠端列表的實際 Checkout；核對 HEAD、追蹤上游與乾淨工作目錄。原生流程通過，已檢視排序與 Checkout 截圖。
+
+Tauri debug 編譯／連結完成，最後更新 `target/debug/repovela.exe` 因檔案被鎖定失敗。將本次 `target/debug/deps/repovela.exe` 另存為 `target/debug/repovela-project-interactions.exe` 完成原生驗證。
+
 ## 2026-10-02：移除 terminal 關閉時的進度區塊
 
 terminal 隱藏／結束後的 Git 資料讀取，原本沿用 `busy` 在工具列下方插入「正在執行 Git 操作…」，使內容位置跳動。移除這個獨立進度區塊，資料讀取與實際 Git 操作改由既有底部狀態列顯示進度，保留衝突操作的繼續／中止介面。

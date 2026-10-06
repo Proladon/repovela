@@ -77,13 +77,34 @@ pre {
   overflow: hidden;
 }
 .sidebar {
-  width: 216px;
-  min-width: 216px;
+  width: var(--sidebar-width, 216px);
+  min-width: var(--sidebar-width, 216px);
+  flex-shrink: 0;
+  position: relative;
   background: #14161b;
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 25px 12px 0;
+}
+.sidebar-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -4px;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+  z-index: 5;
+}
+.sidebar-resizer:hover,
+.sidebar-resizer.active {
+  background: #b6a3f533;
+}
+.resizing-sidebar,
+.resizing-sidebar * {
+  cursor: col-resize !important;
+  user-select: none;
 }
 .app-shell.native-window {
   display: grid;
@@ -211,6 +232,19 @@ pre {
   min-width: 0;
   flex: 1;
   padding: 11px 7px;
+  touch-action: none;
+  user-select: none;
+}
+.project-dragging {
+  background: #292536;
+  cursor: grabbing;
+}
+.project-ghost {
+  opacity: 0.4;
+  outline: 1px dashed #b69cec;
+}
+.project-dragging .project-open {
+  cursor: grabbing;
 }
 .project-open > svg {
   flex-shrink: 0;
@@ -1821,10 +1855,6 @@ pre {
   background: transparent;
 }
 @media (max-width: 1100px) {
-  .sidebar {
-    width: 185px;
-    min-width: 185px;
-  }
   .toolbar {
     padding: 0 17px;
   }

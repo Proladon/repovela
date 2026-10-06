@@ -29,6 +29,10 @@ pub enum GitOperation {
     Reset,
     ContinueOperation,
     AbortOperation,
+    StashPush,
+    StashApply,
+    StashPop,
+    StashDrop,
 }
 
 #[derive(Deserialize)]
@@ -48,6 +52,10 @@ pub struct GitRequest {
     pub expected_head: Option<String>,
     pub expected_branch: Option<String>,
     pub expected_local_oid: Option<String>,
+    pub stash_index: Option<usize>,
+    pub stash_oid: Option<String>,
+    pub include_untracked: Option<bool>,
+    pub restore_index: Option<bool>,
 }
 
 fn run(repo: &Repository, args: &[String]) -> Result<String> {
@@ -174,6 +182,56 @@ pub fn git_operation(path: &str, request: GitRequest) -> Result<String> {
     }
     let mut args: Vec<String> = Vec::new();
     match request.operation {
+        GitOperation::StashPush => {
+            require_clean_state(&repo)?;
+            repo.head().context("尚無 commit，無法儲存 Stash。")?;
+            if repo.index()?.has_conflicts() {
+                bail!("請先解決工作區衝突並暫存檔案，再儲存 Stash。");
+            }
+            let include_untracked = request.include_untracked.unwrap_or(false);
+            let mut options = git2::StatusOptions::new();
+            options
+                .include_untracked(include_untracked)
+                .recurse_untracked_dirs(true);
+            let has_changes = repo.statuses(Some(&mut options))?.iter().any(|entry| {
+                !entry.status().intersects(git2::Status::IGNORED)
+                    && (include_untracked || !entry.status().contains(git2::Status::WT_NEW))
+            });
+            if !has_changes {
+                bail!("沒有可儲存的變更；若只有未追蹤檔案，請勾選包含未追蹤檔案。");
+            }
+            args.extend(["stash", "push"].map(str::to_owned));
+            if include_untracked {
+                args.push("--include-untracked".into());
+            }
+            let message = request.message.as_deref().unwrap_or("").trim();
+            if !message.is_empty() {
+                args.extend(["--message", message].map(str::to_owned));
+            }
+        }
+        GitOperation::StashApply | GitOperation::StashPop | GitOperation::StashDrop => {
+            require_clean_state(&repo)?;
+            let target =
+                super::stash::target(&repo, request.stash_index, request.stash_oid.as_deref())?;
+            let command = match request.operation {
+                GitOperation::StashApply => "apply",
+                GitOperation::StashPop => "pop",
+                _ => "drop",
+            };
+            if command != "drop" && repo.index()?.has_conflicts() {
+                bail!("請先解決工作區衝突並暫存檔案，再套用 Stash。");
+            }
+            args.extend(["stash", command].map(str::to_owned));
+            if command != "drop" && request.restore_index.unwrap_or(false) {
+                args.push("--index".into());
+            }
+            // Apply accepts an immutable object id; pop/drop require a verified stash ref.
+            args.push(if command == "apply" {
+                request.stash_oid.clone().unwrap()
+            } else {
+                target
+            });
+        }
         GitOperation::Stage | GitOperation::Unstage => {
             let stage = matches!(request.operation, GitOperation::Stage);
             let mut paths = BTreeSet::new();

@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import type { CommitDetail, FilePatch, GitRequest, Project, Snapshot } from './types';
 
 export const native = isTauri();
@@ -8,6 +9,11 @@ export const demo =
 
 export function listSystemFonts(): Promise<string[]> {
   return native ? invoke<string[]>('list_system_fonts') : Promise.resolve([]);
+}
+export async function openRepositoryWebsite(url: string): Promise<void> {
+  if (!/^https?:\/\//.test(url)) throw new Error('Repo 網址必須使用 HTTP 或 HTTPS。');
+  if (native) await openUrl(url);
+  else window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 async function demoData() {
@@ -28,6 +34,7 @@ async function call<T>(command: string, args: Record<string, unknown>): Promise<
   }
   if (command === 'read_repository') {
     const snapshot = structuredClone(data.snapshot);
+    snapshot.remotes = [{ name: 'origin', url: 'https://github.com/trasta298/keifu.git' }];
     snapshot.project = { path: String(args.path), name: String(args.path).split('//')[1] };
     if (!args.includeRemotes) {
       snapshot.branches = snapshot.branches.filter((b) => !b.isRemote);

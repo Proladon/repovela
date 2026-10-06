@@ -2,6 +2,10 @@ export interface Project {
   path: string;
   name: string;
 }
+export interface Remote {
+  name: string;
+  url: string;
+}
 
 export interface OwnershipIssue {
   kind: 'ownership';
@@ -26,7 +30,11 @@ export type GitOperation =
   | 'rebase'
   | 'reset'
   | 'continueOperation'
-  | 'abortOperation';
+  | 'abortOperation'
+  | 'stashPush'
+  | 'stashApply'
+  | 'stashPop'
+  | 'stashDrop';
 export type CommitOperation =
   'addTag' | 'createBranch' | 'checkout' | 'cherryPick' | 'revert' | 'merge' | 'rebase' | 'reset';
 export interface GitRequest {
@@ -43,6 +51,16 @@ export interface GitRequest {
   expectedHead?: string;
   expectedBranch?: string;
   expectedLocalOid?: string;
+  stashIndex?: number;
+  stashOid?: string;
+  includeUntracked?: boolean;
+  restoreIndex?: boolean;
+}
+export interface StashEntry {
+  index: number;
+  oid: string;
+  message: string;
+  date: string;
 }
 export interface Branch {
   name: string;
@@ -82,6 +100,8 @@ export interface WorkingFile {
   conflict: boolean;
 }
 export interface Snapshot {
+  stashes?: StashEntry[];
+  remotes?: Remote[];
   operationState?: 'clean' | 'merge' | 'cherryPick' | 'revert' | 'rebase' | 'unsupported';
   project: Project;
   head: string | null;

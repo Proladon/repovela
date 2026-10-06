@@ -29,6 +29,7 @@ function showPath() {
     <button
       class="project-open"
       :title="project.path"
+      :draggable="false"
       @click="emit('action', { type: 'open', path: project.path })"
     >
       <FolderGit2 :size="17" /><span>{{ project.name }}</span

@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+
 import {
   ArrowDown,
   ArrowUp,
   ArrowLeftRight,
+  Archive,
   CloudDownload,
   Copy,
   ChevronDown,
   CircleHelp,
+  ExternalLink,
   FolderGit2,
   FolderOpen,
   GitBranch,
@@ -20,7 +23,6 @@ import {
   ListPlus,
   LocateFixed,
   PanelRightOpen,
-  Pin,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -32,7 +34,8 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-vue-next';
-import { api, chooseProjects, demo, native } from './api';
+import { api, chooseProjects, demo, native, openRepositoryWebsite } from './api';
+import { repositoryWebLinks } from './repositoryUrl';
 import Detail from './Detail.vue';
 import WindowTitlebar from './WindowTitlebar.vue';
 import TerminalPanel from './TerminalPanel.vue';
@@ -40,6 +43,7 @@ import GitActions from './GitActions.vue';
 import ContextMenu from './ContextMenu.vue';
 import CommitActionDialog from './CommitActionDialog.vue';
 import SyncBranchDialog from './SyncBranchDialog.vue';
+import StashDialog from './StashDialog.vue';
 import TrustProjectDialog from './TrustProjectDialog.vue';
 import { provideContextMenu, type MenuItem } from './contextMenu';
 import ColumnHeading from './ColumnHeading.vue';
@@ -48,7 +52,7 @@ import { useAppUpdate } from './appUpdate';
 import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
 import { graphColor, selectedGraphLine, type GraphGlowRow } from './graph';
 import Graph from './Graph.vue';
-import ProjectItem from './ProjectItem.vue';
+import ProjectLibrary from './ProjectLibrary.vue';
 import { emptySession, restoreSession, sessionReducer, STORAGE_KEY } from './session';
 import type { Action, Tab } from './session';
 import type {
@@ -66,6 +70,19 @@ const ownershipIssues = ref<OwnershipIssue[]>([]);
 const ownershipIssue = computed(() => ownershipIssues.value[0]);
 const trusting = ref(false);
 const gitActions = ref<InstanceType<typeof GitActions> | null>(null);
+const stashOpen = ref(false);
+const stashError = ref('');
+function openStash() {
+  if (!native || operating.value || loading.value) return;
+  stashError.value = '';
+  stashOpen.value = true;
+}
+async function operateStash(request: GitRequest) {
+  stashError.value = '';
+  const success = await operate(request);
+  if (!success && stashOpen.value) stashError.value = message.value;
+  return success;
+}
 const commitAction = shallowRef<{
   path: string;
   operation: CommitOperation;
@@ -151,6 +168,10 @@ const projectMenu = ref<string | null>(null);
 const rename = ref<{ path: string; name: string } | null>(null);
 const branchMenu = ref(false);
 const branchQuery = ref('');
+let branchClickTimer: ReturnType<typeof setTimeout> | undefined;
+watch(branchMenu, (open) => {
+  if (!open) clearTimeout(branchClickTimer);
+});
 const primaryBranchButton = ref<HTMLButtonElement | null>(null);
 const pendingBranchFocus = shallowRef<{ path: string; branch: Branch } | null>(null);
 const help = ref(false);
@@ -188,11 +209,55 @@ function refreshTerminalProject(path: string) {
   else loadRepository(true, target);
 }
 const fontScale = computed(() => preferences.value.fontSize / 13);
+const viewportWidth = ref(window.innerWidth);
+const sidebarMaximum = computed(() => Math.max(180, Math.min(480, viewportWidth.value - 600)));
+const sidebarWidth = computed(() =>
+  Math.max(180, Math.min(sidebarMaximum.value, preferences.value.sidebarWidth)),
+);
+const resizingSidebar = ref(false);
+let sidebarDrag: { pointerId: number; x: number; width: number } | null = null;
+function setSidebarWidth(width: number) {
+  preferences.value = {
+    ...preferences.value,
+    sidebarWidth: Math.round(Math.max(180, Math.min(sidebarMaximum.value, width))),
+  };
+}
+function startSidebarResize(event: PointerEvent) {
+  if (event.button !== 0) return;
+  sidebarDrag = { pointerId: event.pointerId, x: event.clientX, width: sidebarWidth.value };
+  resizingSidebar.value = true;
+  (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+  event.preventDefault();
+  event.stopPropagation();
+  projectMenu.value = null;
+}
+function moveSidebarResize(event: PointerEvent) {
+  if (sidebarDrag?.pointerId === event.pointerId)
+    setSidebarWidth(sidebarDrag.width + event.clientX - sidebarDrag.x);
+}
+function stopSidebarResize() {
+  sidebarDrag = null;
+  resizingSidebar.value = false;
+}
+function resetSidebarWidth() {
+  preferences.value = { ...preferences.value, sidebarWidth: defaultPreferences.sidebarWidth };
+}
+function resizeSidebarByKey(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home'].includes(event.key)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (event.key === 'Home') resetSidebarWidth();
+  else setSidebarWidth(sidebarWidth.value + (event.key === 'ArrowRight' ? 16 : -16));
+}
+function updateViewportWidth() {
+  viewportWidth.value = window.innerWidth;
+}
 const rowHeight = computed(() =>
   Math.max(44, Math.round((preferences.value.density === 'compact' ? 44 : 52) * fontScale.value)),
 );
 const connectorHeight = computed(() => Math.round(18 * fontScale.value));
 const appearanceStyle = computed(() => ({
+  '--sidebar-width': `${sidebarWidth.value}px`,
   '--font-scale': fontScale.value,
   '--ui-font-family': fontStack(
     preferences.value.fontFamily,
@@ -227,6 +292,41 @@ const resource = computed(() => {
   return cached?.key === key.value ? cached : undefined;
 });
 const snapshot = computed(() => resource.value?.data);
+const repositoryLinks = computed(() => repositoryWebLinks(snapshot.value?.remotes));
+const openingRepository = ref(false);
+const repositoryWebsiteTitle = computed(() => {
+  if (loading.value) return '正在讀取 repo 網址…';
+  if (!repositoryLinks.value.length) return '此專案沒有可開啟的遠端 repo 網址';
+  return repositoryLinks.value.length === 1
+    ? `開啟 repo 網站：${repositoryLinks.value[0].url}`
+    : '選擇要開啟的遠端 repo 網站';
+});
+async function openRepositoryLink(url: string) {
+  if (openingRepository.value) return;
+  openingRepository.value = true;
+  try {
+    await openRepositoryWebsite(url);
+  } catch (error) {
+    message.value = `無法開啟 repo 網站：${String(error)}`;
+  } finally {
+    openingRepository.value = false;
+  }
+}
+function openRepositorySite(event: MouseEvent) {
+  if (loading.value || openingRepository.value || !repositoryLinks.value.length) return;
+  if (repositoryLinks.value.length === 1) {
+    void openRepositoryLink(repositoryLinks.value[0].url);
+    return;
+  }
+  contextMenu.open(
+    event,
+    repositoryLinks.value.map((remote) => ({
+      label: remote.name,
+      icon: ExternalLink,
+      run: () => openRepositoryLink(remote.url),
+    })),
+  );
+}
 const highlightedGraph = computed(() =>
   preferences.value.highlightSelectedLine
     ? selectedGraphLine(snapshot.value?.rows ?? [], tab.value?.selection)
@@ -303,6 +403,8 @@ const historyTableStyle = computed(() => {
 const error = computed(() => resource.value?.error);
 const loading = computed(() => !!tab.value && (!resource.value || resource.value.loading));
 watch([() => tab.value?.path, settingsOpen], () => {
+  stashOpen.value = false;
+  stashError.value = '';
   commitAction.value = null;
   syncBranchAction.value = null;
 });
@@ -332,11 +434,6 @@ const matches = computed(
             )),
       )
       .map((r) => r.commit!.oid) ?? [],
-);
-const visibleProjects = computed(() =>
-  session.value.projects.filter((p) =>
-    `${p.name} ${p.path}`.toLowerCase().includes(projectSearch.value.toLowerCase()),
-  ),
 );
 const displayDate = (date: string) =>
   new Date(date).toLocaleDateString('zh-TW', {
@@ -550,6 +647,18 @@ function jumpBranch(oid: string) {
   else message.value = '這個分支位於已載入的歷史範圍之外，請先載入更多紀錄。';
   branchMenu.value = false;
 }
+function clickBranch(event: MouseEvent, branch: Branch) {
+  clearTimeout(branchClickTimer);
+  if (event.detail === 0) {
+    jumpBranch(branch.oid);
+    return;
+  }
+  const path = tab.value?.path;
+  // 保留選單直到雙擊判定結束，避免第一次 click 移除第二次點擊的目標。
+  branchClickTimer = setTimeout(() => {
+    if (branchMenu.value && tab.value?.path === path) jumpBranch(branch.oid);
+  }, 500);
+}
 function finishBranchFocus() {
   const pending = pendingBranchFocus.value;
   if (!pending) return;
@@ -652,6 +761,7 @@ function openRepositoryMenu(event: MouseEvent) {
       run: () => operate({ operation: 'push' }),
     },
     { label: '分支操作', icon: GitBranch, disabled, run: () => gitActions.value?.openBranches() },
+    { label: 'Stash', icon: Archive, disabled, run: openStash },
     ...branchFocusItems(true),
   ]);
 }
@@ -680,6 +790,7 @@ function openWorktreeMenu(event: MouseEvent) {
         operate({ operation: 'unstage', files: files.filter((f) => f.staged).map((f) => f.path) }),
     },
     { label: '撰寫提交訊息', icon: GitCommitHorizontal, disabled, run: composeCommit },
+    { label: 'Stash', icon: Archive, disabled, separatorBefore: true, run: openStash },
   ]);
 }
 function syncBranchItem(remotes: Branch[]): MenuItem {
@@ -712,6 +823,7 @@ function syncBranchItem(remotes: Branch[]): MenuItem {
   };
 }
 function openBranchMenu(event: MouseEvent, name: string) {
+  clearTimeout(branchClickTimer);
   const branch: Branch | undefined = snapshot.value?.branches.find((b) => b.name === name);
   if (!branch) return;
   const commit = snapshot.value?.rows.find((row) => row.commit?.oid === branch.oid)?.commit;
@@ -725,17 +837,11 @@ function openBranchMenu(event: MouseEvent, name: string) {
         operating.value ||
         loading.value ||
         branch.isHead ||
+        (snapshot.value?.operationState ?? 'clean') !== 'clean' ||
         (branch.isRemote && !commit),
       disabledReason:
         branch.isRemote && !commit ? '請先載入更多紀錄，再 Checkout 此遠端分支。' : undefined,
-      run: () => {
-        branchMenu.value = false;
-        if (branch.isRemote) {
-          if (commit) openCommitAction('checkout', commit, branch.name);
-          return;
-        }
-        return operate({ operation: 'switchBranch', branch: branch.name });
-      },
+      run: () => checkoutBranch(branch.name),
     },
     {
       label: '從目前 HEAD 建立分支',
@@ -749,9 +855,39 @@ function openBranchMenu(event: MouseEvent, name: string) {
     ...(branch.isRemote ? [syncBranchItem([branch])] : []),
   ]);
 }
+function checkoutBranch(name: string) {
+  clearTimeout(branchClickTimer);
+  const data = snapshot.value;
+  const branch = data?.branches.find((b) => b.name === name);
+  if (
+    !branch ||
+    branch.isHead ||
+    !native ||
+    operating.value ||
+    loading.value ||
+    (data?.operationState ?? 'clean') !== 'clean'
+  )
+    return;
+  branchMenu.value = false;
+  if (branch.isRemote) {
+    const commit = data?.rows.find((row) => row.commit?.oid === branch.oid)?.commit;
+    if (commit) openCommitAction('checkout', commit, branch.name);
+    else message.value = '請先載入更多紀錄，再 Checkout 此遠端分支。';
+    return;
+  }
+  return operate({ operation: 'switchBranch', branch: branch.name });
+}
 function openCommitAction(operation: CommitOperation, commit: Commit, checkoutRemote?: string) {
   const data = snapshot.value;
-  if (!tab.value || !data?.headOid || operating.value || loading.value || !native) return;
+  if (
+    !tab.value ||
+    !data?.headOid ||
+    operating.value ||
+    loading.value ||
+    !native ||
+    (data.operationState ?? 'clean') !== 'clean'
+  )
+    return;
   commitAction.value = {
     path: tab.value.path,
     operation,
@@ -914,6 +1050,10 @@ async function addProject() {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  if (stashOpen.value) {
+    if (e.key === 'Escape' && !operating.value && !loading.value) stashOpen.value = false;
+    return;
+  }
   if (
     (e.ctrlKey || e.metaKey) &&
     e.code === 'Backquote' &&
@@ -1021,10 +1161,17 @@ function handleKeydown(e: KeyboardEvent) {
     }
   }
 }
-onMounted(() => window.addEventListener('keydown', handleKeydown));
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown);
+  window.addEventListener('resize', updateViewportWidth);
+});
 onUnmounted(() => {
   disposed = true;
+
+  clearTimeout(branchClickTimer);
   window.removeEventListener('keydown', handleKeydown);
+  window.removeEventListener('resize', updateViewportWidth);
+  stopSidebarResize();
 });
 </script>
 
@@ -1032,7 +1179,11 @@ onUnmounted(() => {
   <div
     class="app-shell"
     :style="appearanceStyle"
-    :class="{ 'native-window': native, 'hide-column-dividers': !preferences.showColumnDividers }"
+    :class="{
+      'native-window': native,
+      'hide-column-dividers': !preferences.showColumnDividers,
+      'resizing-sidebar': resizingSidebar,
+    }"
   >
     <WindowTitlebar v-if="native" @error="message = $event" />
     <aside class="sidebar" :inert="settingsOpen ? true : undefined">
@@ -1052,50 +1203,19 @@ onUnmounted(() => {
           placeholder="搜尋專案"
           aria-label="搜尋專案"
       /></label>
-      <div class="project-library">
-        <template v-if="visibleProjects.some((p) => p.pinned)"
-          ><div class="library-label"><Pin :size="12" />{{ '已釘選' }}</div>
-          <ProjectItem
-            v-for="p in visibleProjects.filter((p) => p.pinned)"
-            :key="p.path"
-            :project="p"
-            :active="session.active"
-            :menu-open="projectMenu === p.path"
-            @action="dispatch"
-            @toggle-menu="projectMenu = projectMenu === p.path ? null : p.path"
-            @dismiss="projectMenu = null"
-            @rename="rename = { path: p.path, name: p.name }"
-            @path="
-              inputPath = p.path;
-              message = p.path;
-            "
-        /></template>
-        <div class="library-label">
-          <FolderOpen :size="12" />{{ '專案'
-          }}<span>{{ visibleProjects.filter((p) => !p.pinned).length }}</span>
-        </div>
-        <ProjectItem
-          v-for="p in visibleProjects.filter((p) => !p.pinned)"
-          :key="p.path"
-          :project="p"
-          :active="session.active"
-          :menu-open="projectMenu === p.path"
-          @action="dispatch"
-          @toggle-menu="projectMenu = projectMenu === p.path ? null : p.path"
-          @dismiss="projectMenu = null"
-          @rename="rename = { path: p.path, name: p.name }"
-          @path="
-            inputPath = p.path;
-            message = p.path;
-          "
-        /><template v-if="!session.projects.length"
-          ><p class="library-empty">
-            {{ '加入常用的 Git 專案，' }}<br />{{ '下次開啟就能接著看。' }}
-          </p></template
-        ><template v-if="!!session.projects.length && !visibleProjects.length"
-          ><p class="library-empty">{{ '找不到符合的專案。' }}</p></template
-        >
-      </div>
+      <ProjectLibrary
+        :session="session"
+        :query="projectSearch"
+        :menu-path="projectMenu"
+        @action="dispatch"
+        @toggle-menu="projectMenu = projectMenu === $event ? null : $event"
+        @dismiss="projectMenu = null"
+        @rename="rename = { path: $event.path, name: $event.name }"
+        @path="
+          inputPath = $event;
+          message = $event;
+        "
+      />
       <div class="sidebar-bottom">
         <span class="status-dot" />{{ '本機・Git'
         }}<button
@@ -1115,6 +1235,25 @@ onUnmounted(() => {
           <CircleHelp :size="16" />
         </button>
       </div>
+      <div
+        class="sidebar-resizer"
+        :class="{ active: resizingSidebar }"
+        role="separator"
+        aria-label="調整側邊欄寬度"
+        aria-orientation="vertical"
+        tabindex="0"
+        :aria-valuenow="sidebarWidth"
+        :aria-valuemin="180"
+        :aria-valuemax="sidebarMaximum"
+        title="拖曳調整側邊欄寬度，按兩下還原"
+        @pointerdown="startSidebarResize"
+        @pointermove="moveSidebarResize"
+        @pointerup="stopSidebarResize"
+        @pointercancel="stopSidebarResize"
+        @lostpointercapture="stopSidebarResize"
+        @keydown="resizeSidebarByKey"
+        @dblclick="resetSidebarWidth"
+      />
     </aside>
     <main class="main" :inert="settingsOpen ? true : undefined">
       <div class="main-content">
@@ -1176,6 +1315,15 @@ onUnmounted(() => {
             <div class="toolbar-actions">
               <button
                 class="soft-button icon-button git-icon-action"
+                :disabled="loading || openingRepository || !repositoryLinks.length"
+                :title="repositoryWebsiteTitle"
+                aria-label="開啟 repo 網站"
+                @click="openRepositorySite"
+              >
+                <ExternalLink :size="15" />
+              </button>
+              <button
+                class="soft-button icon-button git-icon-action"
                 :disabled="!native"
                 :title="native ? '開啟／隱藏終端機（Ctrl / ⌘ `）' : '終端機請使用桌面版'"
                 aria-label="開啟／隱藏終端機"
@@ -1191,6 +1339,7 @@ onUnmounted(() => {
                 :snapshot="snapshot"
                 :busy="operating || loading"
                 :operate="operate"
+                @stash="openStash"
               />
               <button
                 ref="primaryBranchButton"
@@ -1230,7 +1379,9 @@ onUnmounted(() => {
                         )"
                         :key="b.name"
                         ><button
-                          @click="jumpBranch(b.oid)"
+                          title="單擊跳至分支紀錄；雙擊 Checkout"
+                          @click="clickBranch($event, b)"
+                          @dblclick="checkoutBranch(b.name)"
                           @contextmenu="openBranchMenu($event, b.name)"
                         >
                           <GitBranch :size="13" /><span>{{ b.name }}</span
@@ -1302,7 +1453,7 @@ onUnmounted(() => {
                   <label class="history-search"
                     ><Search :size="15" /><input
                       id="history-search"
-                      placeholder="搜尋訊息、作者、SHA 或分支"
+                      placeholder="搜尋訊息、作者、SHA、分支或 tag"
                       aria-label="搜尋 commit"
                       :value="query"
                       @input="setQuery(($event.target as HTMLInputElement).value)"
@@ -1363,6 +1514,8 @@ onUnmounted(() => {
                             :aria-current="row.isHead ? 'true' : undefined"
                             :class="`commit-row ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
                             @click="() => select(row.commit!.oid)"
+                            title="雙擊 Checkout"
+                            @dblclick="openCommitAction('checkout', row.commit!)"
                             @contextmenu="openCommitMenu($event, row.commit!.oid)"
                           >
                             <Graph
@@ -1385,6 +1538,8 @@ onUnmounted(() => {
                                     class="branch-badge"
                                     :class="{ 'follows-line': preferences.followBranchColor }"
                                     :style="branchStyle(row)"
+                                    title="雙擊 Checkout 此分支"
+                                    @dblclick.stop="checkoutBranch(b)"
                                     @contextmenu="openBranchMenu($event, b)"
                                     >{{ b }}</span
                                   ></template
@@ -1480,6 +1635,7 @@ onUnmounted(() => {
                     :busy="operating || loading"
                     :operate="operate"
                     @close="closeDetail"
+                    @stash="openStash"
                   />
                 </div></div></template
           ></template>
@@ -1694,6 +1850,15 @@ onUnmounted(() => {
       :busy="operating || loading"
       :operate="operate"
       @close="commitAction = null"
+    />
+    <StashDialog
+      v-if="stashOpen && snapshot"
+      :key="tab?.path"
+      :snapshot="snapshot"
+      :busy="operating || loading"
+      :error="stashError"
+      :operate="operateStash"
+      @close="stashOpen = false"
     />
     <SyncBranchDialog
       v-if="syncBranchAction && snapshot && syncBranchAction.path === tab?.path"

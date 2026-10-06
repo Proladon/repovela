@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue';
 import {
+  Archive,
   Check,
   ChevronLeft,
   Copy,
@@ -25,7 +26,7 @@ const props = defineProps<{
   busy: boolean;
   operate: (request: GitRequest) => Promise<boolean>;
 }>();
-const emit = defineEmits<{ close: [] }>();
+const emit = defineEmits<{ close: []; stash: [] }>();
 const detail = shallowRef<{ key: string; data?: CommitDetail; error?: string }>({ key: '' });
 const file = ref<{ path: string; area: string } | null>(null);
 const patch = shallowRef<{ key: string; data?: FilePatch; error?: string }>({ key: '' });
@@ -53,6 +54,13 @@ function openFileMenu(event: MouseEvent, path: string, area: string) {
         ),
       run: () => props.operate({ operation: staged ? 'unstage' : 'stage', files: [path] }),
     },
+    {
+      label: 'Stash 工作區…',
+      icon: Archive,
+      disabled: !native || props.busy,
+      separatorBefore: true,
+      run: () => emit('stash'),
+    },
   ]);
 }
 function openWorktreeMenu(event: MouseEvent) {
@@ -72,6 +80,13 @@ function openWorktreeMenu(event: MouseEvent) {
       icon: GitCommitHorizontal,
       disabled: !native || props.busy || !canCommit.value || !commitMessage.value.trim(),
       run: submitCommit,
+    },
+    {
+      label: 'Stash',
+      icon: Archive,
+      disabled: !native || props.busy,
+      separatorBefore: true,
+      run: () => emit('stash'),
     },
   ]);
 }

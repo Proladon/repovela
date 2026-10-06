@@ -17,6 +17,33 @@ fn commit(repo: &Repository, message: &str) -> git2::Oid {
 }
 
 #[test]
+fn reads_remote_urls_even_when_remote_branches_are_hidden_without_changing_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repository::init(dir.path()).unwrap();
+    repo.remote("origin", "git@github.com:team/repo.git")
+        .unwrap();
+    repo.remote("upstream", "https://gitlab.example.com/team/repo.git")
+        .unwrap();
+    let before = std::fs::read(repo.path().join("config")).unwrap();
+    let snapshot = read_repository(dir.path().to_str().unwrap(), false, 500).unwrap();
+    assert_eq!(snapshot.remotes.len(), 2);
+    assert_eq!(snapshot.remotes[0].name, "origin");
+    assert_eq!(snapshot.remotes[0].url, "git@github.com:team/repo.git");
+    assert_eq!(snapshot.remotes[1].name, "upstream");
+    assert_eq!(
+        snapshot.remotes[1].url,
+        "https://gitlab.example.com/team/repo.git"
+    );
+    assert_eq!(std::fs::read(repo.path().join("config")).unwrap(), before);
+    repo.remote_delete("origin").unwrap();
+    repo.remote_delete("upstream").unwrap();
+    assert!(read_repository(dir.path().to_str().unwrap(), true, 500)
+        .unwrap()
+        .remotes
+        .is_empty());
+}
+
+#[test]
 fn discovers_nested_project_and_reads_initial_commit_without_mutating_index() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repository::init(dir.path()).unwrap();

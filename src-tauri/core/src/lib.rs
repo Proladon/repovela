@@ -2,8 +2,10 @@
 pub mod git;
 pub mod graph;
 mod operations;
+mod stash;
 mod trust;
 pub use operations::{git_operation, GitOperation, GitRequest};
+pub use stash::StashEntry;
 pub use trust::{open_project_for_ui, trust_project, ProjectOpenError};
 
 use anyhow::{bail, Context, Result};
@@ -23,6 +25,12 @@ const PATCH_LINES_LIMIT: usize = 10_000;
 pub struct Project {
     pub path: String,
     pub name: String,
+}
+
+#[derive(Serialize)]
+pub struct Remote {
+    pub name: String,
+    pub url: String,
 }
 
 #[derive(Serialize)]
@@ -129,6 +137,8 @@ pub struct WorkingFile {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Snapshot {
+    pub stashes: Vec<StashEntry>,
+    pub remotes: Vec<Remote>,
     pub operation_state: &'static str,
     pub project: Project,
     pub head: Option<String>,
@@ -289,6 +299,20 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
         }
     }
     Ok(Snapshot {
+        stashes: stash::list(&repo)?,
+        remotes: repo
+            .remotes()?
+            .iter()
+            .flatten()
+            .filter_map(|name| {
+                let remote = repo.find_remote(name).ok()?;
+                let url = remote.url().or_else(|| remote.pushurl())?;
+                Some(Remote {
+                    name: name.to_owned(),
+                    url: url.to_owned(),
+                })
+            })
+            .collect(),
         project: project_info(&repo)?,
         head: head_name,
         operation_state: operations::operation_state(&repo),

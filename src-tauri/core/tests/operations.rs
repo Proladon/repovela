@@ -9,6 +9,241 @@ fn setup(path: &Path) -> Repository {
     repo
 }
 
+#[test]
+fn stash_saves_partial_index_and_untracked_then_applies_and_drops_without_changing_head() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = setup(dir.path());
+    std::fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+    let head = write_save(dir.path(), "file.txt", "base\n", "base");
+    std::fs::write(dir.path().join("file.txt"), "staged\n").unwrap();
+    run(
+        dir.path(),
+        json!({"operation":"stage", "files":["file.txt"]}),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("file.txt"), "unstaged\n").unwrap();
+    std::fs::write(dir.path().join("新檔案.txt"), "new\n").unwrap();
+    std::fs::write(dir.path().join("ignored.txt"), "keep\n").unwrap();
+    run(dir.path(), json!({"operation":"stashPush", "message":"工作 暫存", "includeUntracked":true, "expectedHead":head.to_string()})).unwrap();
+    let snapshot = read_repository(dir.path().to_str().unwrap(), true, 500).unwrap();
+    assert_eq!(snapshot.stashes.len(), 1);
+    assert!(snapshot.stashes[0].message.contains("工作 暫存"));
+    assert_eq!(snapshot.stashes[0].index, 0);
+    assert!(!snapshot.stashes[0].date.is_empty());
+    assert!(snapshot.working_files.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "base\n"
+    );
+    assert!(!dir.path().join("新檔案.txt").exists());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("ignored.txt")).unwrap(),
+        "keep\n"
+    );
+    let oid = &snapshot.stashes[0].oid;
+    run(
+        dir.path(),
+        json!({"operation":"stashApply", "stashIndex":0, "stashOid":oid, "restoreIndex":true}),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "unstaged\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("新檔案.txt")).unwrap(),
+        "new\n"
+    );
+    let indexed = repo
+        .index()
+        .unwrap()
+        .get_path(Path::new("file.txt"), 0)
+        .unwrap();
+    assert_eq!(repo.find_blob(indexed.id).unwrap().content(), b"staged\n");
+    assert_eq!(
+        read_repository(dir.path().to_str().unwrap(), true, 500)
+            .unwrap()
+            .stashes
+            .len(),
+        1
+    );
+    let index_before = std::fs::read(repo.path().join("index")).unwrap();
+    run(
+        dir.path(),
+        json!({"operation":"stashDrop", "stashIndex":0, "stashOid":oid}),
+    )
+    .unwrap();
+    assert!(read_repository(dir.path().to_str().unwrap(), true, 500)
+        .unwrap()
+        .stashes
+        .is_empty());
+    assert_eq!(
+        std::fs::read(repo.path().join("index")).unwrap(),
+        index_before
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "unstaged\n"
+    );
+    assert_eq!(repo.head().unwrap().target(), Some(head));
+}
+
+#[test]
+fn stash_default_leaves_untracked_and_pop_removes_only_after_success() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = setup(dir.path());
+    write_save(dir.path(), "file.txt", "base\n", "base");
+    std::fs::write(dir.path().join("file.txt"), "saved\n").unwrap();
+    std::fs::write(dir.path().join("untracked.txt"), "new\n").unwrap();
+    run(dir.path(), json!({"operation":"stashPush"})).unwrap();
+    assert!(dir.path().join("untracked.txt").exists());
+    let snapshot = read_repository(dir.path().to_str().unwrap(), false, 500).unwrap();
+    assert_eq!(snapshot.stashes.len(), 1);
+    run(dir.path(), json!({"operation":"stashPop", "stashIndex":0, "stashOid":snapshot.stashes[0].oid, "restoreIndex":false})).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "saved\n"
+    );
+    assert!(read_repository(dir.path().to_str().unwrap(), true, 500)
+        .unwrap()
+        .stashes
+        .is_empty());
+    let indexed = repo
+        .index()
+        .unwrap()
+        .get_path(Path::new("file.txt"), 0)
+        .unwrap();
+    assert_eq!(repo.find_blob(indexed.id).unwrap().content(), b"base\n");
+}
+
+#[test]
+fn stash_rejects_stale_indices_invalid_targets_and_overwrite_of_dirty_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = setup(dir.path());
+    write_save(dir.path(), "file.txt", "base\n", "base");
+    std::fs::write(dir.path().join("file.txt"), "first\n").unwrap();
+    run(
+        dir.path(),
+        json!({"operation":"stashPush", "message":"first"}),
+    )
+    .unwrap();
+    let first = read_repository(dir.path().to_str().unwrap(), true, 500)
+        .unwrap()
+        .stashes
+        .remove(0);
+    std::fs::write(dir.path().join("file.txt"), "second\n").unwrap();
+    run(
+        dir.path(),
+        json!({"operation":"stashPush", "message":"second"}),
+    )
+    .unwrap();
+    let before_index = std::fs::read(repo.path().join("index")).unwrap();
+    for operation in ["stashApply", "stashPop", "stashDrop"] {
+        let error = run(
+            dir.path(),
+            json!({"operation":operation, "stashIndex":0, "stashOid":first.oid}),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("清單已變更"));
+        assert!(run(
+            dir.path(),
+            json!({"operation":operation, "stashIndex":0, "stashOid":"--all"})
+        )
+        .is_err());
+        assert!(run(dir.path(), json!({"operation":operation})).is_err());
+    }
+    assert_eq!(
+        std::fs::read(repo.path().join("index")).unwrap(),
+        before_index
+    );
+    let snapshot = read_repository(dir.path().to_str().unwrap(), true, 500).unwrap();
+    assert_eq!(snapshot.stashes.len(), 2);
+    assert_eq!(snapshot.stashes[1].oid, first.oid);
+    std::fs::write(dir.path().join("file.txt"), "do not overwrite\n").unwrap();
+    assert!(run(
+        dir.path(),
+        json!({"operation":"stashPop", "stashIndex":0, "stashOid":snapshot.stashes[0].oid})
+    )
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "do not overwrite\n"
+    );
+    assert_eq!(
+        read_repository(dir.path().to_str().unwrap(), true, 500)
+            .unwrap()
+            .stashes
+            .len(),
+        2
+    );
+}
+
+#[test]
+fn stash_pop_conflict_keeps_stash_and_conflict_contents() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = setup(dir.path());
+    write_save(dir.path(), "file.txt", "base\n", "base");
+    std::fs::write(dir.path().join("file.txt"), "saved\n").unwrap();
+    run(dir.path(), json!({"operation":"stashPush"})).unwrap();
+    let oid = read_repository(dir.path().to_str().unwrap(), true, 500)
+        .unwrap()
+        .stashes[0]
+        .oid
+        .clone();
+    write_save(dir.path(), "file.txt", "advanced\n", "advance");
+    assert!(run(
+        dir.path(),
+        json!({"operation":"stashPop", "stashIndex":0, "stashOid":oid, "restoreIndex":false})
+    )
+    .is_err());
+    assert!(repo.index().unwrap().has_conflicts());
+    let conflict = std::fs::read_to_string(dir.path().join("file.txt")).unwrap();
+    assert!(conflict.contains("saved") && conflict.contains("advanced"));
+    let snapshot = read_repository(dir.path().to_str().unwrap(), true, 500).unwrap();
+    assert_eq!(snapshot.stashes.len(), 1);
+    assert_eq!(snapshot.stashes[0].oid, oid);
+    assert!(run(dir.path(), json!({"operation":"stashPush"})).is_err());
+    assert!(run(
+        dir.path(),
+        json!({"operation":"stashApply", "stashIndex":0, "stashOid":oid})
+    )
+    .is_err());
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        conflict
+    );
+}
+
+#[test]
+fn stash_requires_a_commit_and_changes_and_can_save_only_untracked() {
+    let dir = tempfile::tempdir().unwrap();
+    setup(dir.path());
+    std::fs::write(dir.path().join("file.txt"), "base\n").unwrap();
+    assert!(run(
+        dir.path(),
+        json!({"operation":"stashPush", "includeUntracked":true})
+    )
+    .is_err());
+    save(dir.path(), "base");
+    assert!(run(dir.path(), json!({"operation":"stashPush"})).is_err());
+    std::fs::write(dir.path().join("new.txt"), "new\n").unwrap();
+    assert!(run(dir.path(), json!({"operation":"stashPush"})).is_err());
+    assert!(dir.path().join("new.txt").exists());
+    run(
+        dir.path(),
+        json!({"operation":"stashPush", "includeUntracked":true}),
+    )
+    .unwrap();
+    assert!(!dir.path().join("new.txt").exists());
+    assert_eq!(
+        read_repository(dir.path().to_str().unwrap(), true, 500)
+            .unwrap()
+            .stashes
+            .len(),
+        1
+    );
+}
+
 fn configure(repo: &Repository) {
     let mut config = repo.config().unwrap();
     config.set_str("user.name", "測試作者").unwrap();

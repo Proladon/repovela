@@ -19,12 +19,14 @@ const mocked = vi.hoisted(() => ({
   open: vi.fn(),
   trust: vi.fn(),
   fonts: vi.fn(),
+  website: vi.fn(),
 }));
 vi.mock('./api', () => ({
   native: true,
   demo: false,
   chooseProjects: mocked.choose,
   listSystemFonts: mocked.fonts,
+  openRepositoryWebsite: mocked.website,
   api: {
     operate: mocked.operate,
     repository: mocked.repository,
@@ -116,6 +118,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.clearAllMocks();
   mocked.fonts.mockResolvedValue(['Arial', '自訂安裝字體']);
+  mocked.website.mockResolvedValue(undefined);
   mocked.operate.mockResolvedValue('ok');
   mocked.repository.mockImplementation(async (path: string) => snapshot(path));
   mocked.commit.mockImplementation(async (_path: string, oid: string) => detail(oid));
@@ -139,6 +142,426 @@ afterEach(() => {
 });
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('側邊欄可用鍵盤調整、保存與重設，視窗縮小時保留主區空間', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const separator = screen.getByRole('separator', { name: '調整側邊欄寬度' });
+    await fireEvent.keyDown(separator, { key: 'ArrowRight' });
+    expect(separator.getAttribute('aria-valuenow')).toBe('232');
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).sidebarWidth).toBe(232);
+    await fireEvent.keyDown(separator, { key: 'Home' });
+    expect(separator.getAttribute('aria-valuenow')).toBe('216');
+    await fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+    await fireEvent.dblClick(separator);
+    expect(separator.getAttribute('aria-valuenow')).toBe('216');
+    vi.stubGlobal('innerWidth', 800);
+    await fireEvent.resize(window);
+    expect(separator.getAttribute('aria-valuenow')).toBe('200');
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!).sidebarWidth).toBe(216);
+    expect(mocked.operate).not.toHaveBeenCalled();
+  });
+  it('建立、改名與移除群組會保存，不改變專案與目前分頁', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '建立群組' }));
+    await fireEvent.update(screen.getByRole('textbox', { name: '群組名稱' }), '工作');
+    await fireEvent.click(screen.getByRole('button', { name: '建立' }));
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).groups[0].name).toBe('工作');
+    await fireEvent.click(screen.getByRole('button', { name: '工作 群組選單' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '重新命名群組' }));
+    await fireEvent.update(screen.getByRole('textbox', { name: '群組名稱' }), '個人');
+    await fireEvent.click(screen.getByRole('button', { name: '儲存群組名稱' }));
+    await fireEvent.click(screen.getByRole('button', { name: '個人 群組選單' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '移除群組（保留專案）' }));
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    expect(saved.groups).toEqual([]);
+    expect(saved.projects).toHaveLength(2);
+    expect(saved.active).toBe('/a');
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(mocked.repository).toHaveBeenCalledTimes(1);
+  });
+  it('折疊會隱藏群組專案，搜尋會顯示結果且清除後保留折疊狀態', async () => {
+    saveProjects();
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    saved.groups = [{ id: 'work', name: '工作', collapsed: true }];
+    saved.projects[0].groupId = 'work';
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(screen.queryByRole('button', { name: '專案 A' })).toBeNull();
+    await fireEvent.update(screen.getByRole('textbox', { name: '搜尋專案' }), '專案 A');
+    expect(screen.getByRole('button', { name: '專案 A' })).toBeTruthy();
+    await fireEvent.update(screen.getByRole('textbox', { name: '搜尋專案' }), '');
+    expect(screen.queryByRole('button', { name: '專案 A' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '展開 工作 群組' }));
+    expect(screen.getByRole('button', { name: '專案 A' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '折疊 工作 群組' }));
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY)!).groups[0].collapsed).toBe(true);
+    expect(screen.getByRole('tab', { name: '專案 A' }).getAttribute('aria-selected')).toBe('true');
+  });
+  it('Stash 儲存訊息與未追蹤選項，刷新清單並保留視窗', async () => {
+    saveProjects();
+    let saved = false;
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      workingFiles: saved
+        ? []
+        : [{ path: 'new.txt', staged: false, unstaged: true, untracked: true, conflict: false }],
+      stashes: saved
+        ? [
+            {
+              index: 0,
+              oid: 'c'.repeat(40),
+              message: 'On main: 我的暫存',
+              date: '2026-10-06T08:00:00Z',
+            },
+          ]
+        : [],
+    }));
+    mocked.operate.mockImplementation(async () => {
+      saved = true;
+      return 'saved';
+    });
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.contextMenu(document.getElementById('commit-worktree')!);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Stash' }));
+    const dialog = screen.getByRole('dialog', { name: 'Stash' });
+    expect(document.activeElement).toBe(within(dialog).getByLabelText('Stash 訊息（可留空）'));
+    const button = within(dialog).getByRole('button', { name: '儲存 Stash' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    await fireEvent.click(within(dialog).getByLabelText('包含未追蹤檔案'));
+    await fireEvent.update(within(dialog).getByLabelText('Stash 訊息（可留空）'), ' 我的暫存 ');
+    await fireEvent.click(button);
+    await within(dialog).findByRole('option', { name: /我的暫存/ });
+    expect(mocked.operate).toHaveBeenCalledExactlyOnceWith('/a', {
+      operation: 'stashPush',
+      message: '我的暫存',
+      includeUntracked: true,
+      expectedHead: commits[0].oid,
+      expectedBranch: 'refs/heads/main',
+    });
+    expect(within(dialog).queryByLabelText('Stash 訊息（可留空）')).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: '儲存 Stash' })).toBeNull();
+    expect(within(dialog).getByText('目前工作區沒有可儲存的變更。')).toBeTruthy();
+    await fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('Stash Apply 保留項目，Pop 使用所選項目與暫存選項', async () => {
+    saveProjects();
+    let stashes = [
+      { index: 0, oid: 'c'.repeat(40), message: '第一份暫存', date: '2026-10-06T08:00:00Z' },
+      { index: 1, oid: 'd'.repeat(40), message: '第二份暫存', date: '2026-10-05T08:00:00Z' },
+    ];
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      stashes,
+      workingFiles: [
+        { path: 'file.txt', staged: false, unstaged: true, untracked: false, conflict: false },
+      ],
+    }));
+    mocked.operate.mockImplementation(async (_path, request) => {
+      if (request.operation === 'stashPop')
+        stashes = stashes.filter((stash) => stash.oid !== request.stashOid);
+      return 'ok';
+    });
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(document.getElementById('commit-worktree')!);
+    await fireEvent.contextMenu(document.querySelector('.working-file-actions')!);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Stash 工作區…' }));
+    const dialog = screen.getByRole('dialog', { name: 'Stash' });
+    await fireEvent.click(within(dialog).getByRole('option', { name: /第二份暫存/ }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: '套用 Stash' }));
+    await waitFor(() =>
+      expect(
+        (within(dialog).getByRole('button', { name: '套用 Stash' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    expect(within(dialog).getAllByRole('option')).toHaveLength(2);
+    expect(mocked.operate).toHaveBeenLastCalledWith('/a', {
+      operation: 'stashApply',
+      stashIndex: 1,
+      stashOid: 'd'.repeat(40),
+      restoreIndex: true,
+      expectedHead: commits[0].oid,
+      expectedBranch: 'refs/heads/main',
+    });
+    await fireEvent.click(within(dialog).getByLabelText('一併還原暫存狀態'));
+    await fireEvent.click(within(dialog).getByRole('button', { name: '還原並移除 Stash' }));
+    await waitFor(() => expect(within(dialog).getAllByRole('option')).toHaveLength(1));
+    expect(mocked.operate).toHaveBeenLastCalledWith('/a', {
+      operation: 'stashPop',
+      stashIndex: 1,
+      stashOid: 'd'.repeat(40),
+      restoreIndex: false,
+      expectedHead: commits[0].oid,
+      expectedBranch: 'refs/heads/main',
+    });
+  });
+
+  it('Stash 刪除需確認，可取消，失敗保留目標與錯誤並可重試', async () => {
+    saveProjects();
+    let exists = true;
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      stashes: exists
+        ? [{ index: 0, oid: 'c'.repeat(40), message: '重要暫存', date: '2026-10-06T08:00:00Z' }]
+        : [],
+    }));
+    mocked.operate.mockRejectedValueOnce(new Error('Stash 清單已變更'));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(document.getElementById('commit-worktree')!);
+    await fireEvent.contextMenu(document.querySelector('.detail-scroll')!);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Stash' }));
+    const dialog = screen.getByRole('dialog', { name: 'Stash' });
+    await fireEvent.click(within(dialog).getByRole('button', { name: '刪除 Stash' }));
+    expect(mocked.operate).not.toHaveBeenCalled();
+    await fireEvent.click(within(dialog).getByRole('button', { name: '取消刪除' }));
+    expect(within(dialog).getByRole('option', { name: /重要暫存/ })).toBeTruthy();
+    await fireEvent.click(within(dialog).getByRole('button', { name: '刪除 Stash' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: '確認刪除 Stash' }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole('alert').textContent).toContain('Stash 清單已變更'),
+    );
+    await waitFor(() =>
+      expect(
+        (within(dialog).getByRole('button', { name: '確認刪除 Stash' }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+    mocked.operate.mockImplementation(async () => {
+      exists = false;
+      return 'ok';
+    });
+    await fireEvent.click(within(dialog).getByRole('button', { name: '確認刪除 Stash' }));
+    await within(dialog).findByText('目前沒有 Stash。');
+    expect(mocked.operate).toHaveBeenLastCalledWith('/a', {
+      operation: 'stashDrop',
+      stashIndex: 0,
+      stashOid: 'c'.repeat(40),
+    });
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('Stash Pop 失敗顯示錯誤，衝突時保留清單並禁止再次套用', async () => {
+    saveProjects();
+    let conflict = false;
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      stashes: [
+        { index: 0, oid: 'c'.repeat(40), message: '衝突暫存', date: '2026-10-06T08:00:00Z' },
+      ],
+      workingFiles: conflict
+        ? [{ path: 'file.txt', staged: false, unstaged: true, untracked: false, conflict: true }]
+        : [],
+    }));
+    let fail!: (error: Error) => void;
+    mocked.operate.mockImplementation(
+      () =>
+        new Promise((_resolve, reject) => {
+          fail = reject;
+        }),
+    );
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Stash' }));
+    const dialog = screen.getByRole('dialog', { name: 'Stash' });
+    const pop = within(dialog).getByRole('button', { name: '還原並移除 Stash' });
+    await fireEvent.click(pop);
+    await fireEvent.click(pop);
+    expect(mocked.operate).toHaveBeenCalledTimes(1);
+    expect(
+      (within(dialog).getByRole('button', { name: '關閉 Stash' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    conflict = true;
+    fail(new Error('CONFLICT: Stash 保留'));
+    await within(dialog).findByText(/CONFLICT: Stash 保留/);
+    await within(dialog).findByText('工作區有衝突，請先解決衝突並暫存檔案。');
+    expect(within(dialog).getAllByRole('option')).toHaveLength(1);
+    expect(
+      (within(dialog).getByRole('button', { name: '套用 Stash' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+  it('repo 網站按鈕開啟 SSH 遠端對應網站，切換專案使用各自的網址', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      remotes: [{ name: 'origin', url: `git@github.com:team/${path.slice(1)}.git` }],
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const button = screen.getByRole('button', { name: '開啟 repo 網站' });
+    expect(button.getAttribute('title')).toContain('https://github.com/team/a');
+    await fireEvent.click(button);
+    expect(mocked.website).toHaveBeenLastCalledWith('https://github.com/team/a');
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    await fireEvent.click(button);
+    expect(mocked.website).toHaveBeenLastCalledWith('https://github.com/team/b');
+    expect(mocked.operate).not.toHaveBeenCalled();
+  });
+  it('多個遠端時先選擇 repo，略過只有本機路徑的遠端', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      remotes: [
+        { name: 'origin', url: 'https://github.com/team/fork.git' },
+        { name: 'upstream', url: 'ssh://git@gitlab.example.com/team/repo.git' },
+        { name: 'local', url: 'C:/repo.git' },
+      ],
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '開啟 repo 網站' }));
+    expect(mocked.website).not.toHaveBeenCalled();
+    expect(screen.getAllByRole('menuitem').map((item) => item.textContent?.trim())).toEqual([
+      'origin',
+      'upstream',
+    ]);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'upstream' }));
+    expect(mocked.website).toHaveBeenCalledWith('https://gitlab.example.com/team/repo');
+  });
+  it('沒有網站遠端時停用 repo 按鈕並提供原因', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const button = screen.getByRole('button', { name: '開啟 repo 網站' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(button.title).toBe('此專案沒有可開啟的遠端 repo 網址');
+    await fireEvent.click(button);
+    expect(mocked.website).not.toHaveBeenCalled();
+  });
+  it('開啟網站失敗顯示錯誤且可重試', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      remotes: [{ name: 'origin', url: 'https://github.com/team/repo.git' }],
+    }));
+    mocked.website.mockRejectedValueOnce(new Error('browser unavailable'));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const button = screen.getByRole('button', { name: '開啟 repo 網站' });
+    await fireEvent.click(button);
+    await screen.findByText('無法開啟 repo 網站：Error: browser unavailable');
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    await fireEvent.click(button);
+    expect(mocked.website).toHaveBeenCalledTimes(2);
+  });
+  it('單擊 commit 只選取，雙擊開啟 Checkout 並沿用目標與 HEAD 檢查', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const row = document.getElementById(`commit-${commits[1].oid}`)!;
+    await fireEvent.click(row);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await fireEvent.dblClick(row);
+    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe('detached');
+    expect(mocked.operate).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
+    await waitFor(() =>
+      expect(mocked.operate).toHaveBeenCalledWith('/a', {
+        operation: 'checkout',
+        oid: commits[1].oid,
+        expectedHead: commits[0].oid,
+        expectedBranch: 'refs/heads/main',
+      }),
+    );
+  });
+  it('雙擊同一 commit 上的分支標籤，只切換指定分支且不開啟 commit 對話框', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      branches: [
+        ...snapshot(path).branches,
+        { name: 'dev', oid: commits[1].oid, isHead: false, isRemote: false },
+        { name: 'release', oid: commits[1].oid, isHead: false, isRemote: false },
+      ],
+      rows: snapshot(path).rows.map((row, i) =>
+        i === 1 ? { ...row, branches: ['dev', 'release'] } : row,
+      ),
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.dblClick(
+      document.querySelectorAll(`#commit-${commits[1].oid} .branch-badge`)[1],
+    );
+    await waitFor(() =>
+      expect(mocked.operate).toHaveBeenCalledWith('/a', {
+        operation: 'switchBranch',
+        branch: 'release',
+      }),
+    );
+    expect(mocked.operate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('分支選單的第一次 click 保留目標，雙擊遠端指定正確追蹤分支', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      branches: [
+        ...snapshot(path).branches,
+        {
+          name: 'origin/dev',
+          localName: 'dev',
+          oid: commits[1].oid,
+          isHead: false,
+          isRemote: true,
+        },
+        {
+          name: 'origin/release',
+          localName: 'release',
+          oid: commits[1].oid,
+          isHead: false,
+          isRemote: true,
+        },
+      ],
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(document.querySelector('.branch-picker > button')!);
+    const branch = within(document.querySelector('.branch-list') as HTMLElement).getByRole(
+      'button',
+      { name: 'origin/release 遠端' },
+    );
+    await fireEvent.click(branch, { detail: 1 });
+    expect(branch.isConnected).toBe(true);
+    await fireEvent.click(branch, { detail: 2 });
+    await fireEvent.dblClick(branch);
+    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe(
+      'remote:origin/release',
+    );
+    expect((screen.getByLabelText('本機分支名稱') as HTMLInputElement).value).toBe('release');
+    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
+    await waitFor(() =>
+      expect(mocked.operate).toHaveBeenCalledWith('/a', {
+        operation: 'checkout',
+        oid: commits[1].oid,
+        branch: 'release',
+        remoteBranch: 'origin/release',
+        expectedHead: commits[0].oid,
+        expectedBranch: 'refs/heads/main',
+      }),
+    );
+  });
+  it('有進行中的 Git 操作時，雙擊不執行 Checkout', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      operationState: 'merge',
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.dblClick(document.getElementById(`commit-${commits[1].oid}`)!);
+    await fireEvent.dblClick(document.querySelector('.branch-badge')!);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(mocked.operate).not.toHaveBeenCalled();
+  });
   it('選取 commit 會標亮整條線與 connector，切換 commit 時更新整條線', async () => {
     saveProjects();
     mocked.repository.mockImplementation(async (path: string) => ({

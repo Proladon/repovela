@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { defaultPreferences, fontStack, restorePreferences } from './preferences';
 
 describe('偏好設定保存與還原', () => {
+  it('側邊欄寬度會保存、限制範圍，舊設定沿用 216px', () => {
+    for (const [saved, expected] of [
+      [320, 320],
+      [100, 180],
+      [900, 480],
+      [240.7, 241],
+    ]) {
+      expect(
+        restorePreferences(JSON.stringify({ version: 1, sidebarWidth: saved })).sidebarWidth,
+      ).toBe(expected);
+    }
+    expect(restorePreferences('{"version":1}').sidebarWidth).toBe(216);
+  });
   it('損壞、缺少或舊版設定使用預設值', () => {
     for (const raw of [null, '{', 'null', '[]', '{"version":2}', '{"fontSize":18}']) {
       expect(restorePreferences(raw)).toEqual(defaultPreferences);

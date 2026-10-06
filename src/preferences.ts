@@ -13,6 +13,7 @@ export interface Preferences {
   showColumnDividers: boolean;
   defaultRemotes: boolean;
   defaultCommitLimit: number;
+  sidebarWidth: number;
 }
 
 export const PREFERENCES_KEY = 'repovela-preferences-v1';
@@ -31,6 +32,7 @@ export const defaultPreferences: Preferences = {
   showColumnDividers: true,
   defaultRemotes: true,
   defaultCommitLimit: 500,
+  sidebarWidth: 216,
 };
 
 export function restorePreferences(raw: string | null): Preferences {
@@ -60,6 +62,8 @@ export function restorePreferences(raw: string | null): Preferences {
     }
     if (typeof data.fontSize === 'number' && Number.isFinite(data.fontSize))
       result.fontSize = Math.max(11, Math.min(20, Math.round(data.fontSize)));
+    if (typeof data.sidebarWidth === 'number' && Number.isFinite(data.sidebarWidth))
+      result.sidebarWidth = Math.max(180, Math.min(480, Math.round(data.sidebarWidth)));
     if (data.density === 'compact' || data.density === 'comfortable') result.density = data.density;
     if (data.dateFormat === 'short' || data.dateFormat === 'full')
       result.dateFormat = data.dateFormat;

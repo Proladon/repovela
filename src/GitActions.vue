@@ -9,6 +9,7 @@ import {
   Upload,
   Play,
   Undo2,
+  Archive,
 } from 'lucide-vue-next';
 import { native } from './api';
 import { useContextMenu } from './contextMenu';
@@ -19,6 +20,7 @@ const props = defineProps<{
   busy: boolean;
   operate: (request: GitRequest) => Promise<boolean>;
 }>();
+const emit = defineEmits<{ stash: [] }>();
 const branchesOpen = ref(false);
 const newBranch = ref('');
 const selectedBranch = ref('');
@@ -60,6 +62,7 @@ function openMenu(event: MouseEvent) {
       run: () => props.operate({ operation: 'push' }),
     },
     { label: '分支操作', icon: GitBranch, disabled: !native || props.busy, run: openBranches },
+    { label: 'Stash', icon: Archive, disabled: !native || props.busy, run: () => emit('stash') },
   ]);
 }
 async function createBranch() {
@@ -110,6 +113,15 @@ async function switchBranch() {
       @click="operate({ operation: 'push' })"
     >
       <Upload :size="16" aria-hidden="true" />
+    </button>
+    <button
+      class="soft-button icon-button git-icon-action"
+      :disabled="!native || busy"
+      aria-label="Stash"
+      :title="`Stash：儲存或還原工作區變更（${snapshot.stashes?.length ?? 0} 筆）`"
+      @click="emit('stash')"
+    >
+      <Archive :size="16" aria-hidden="true" />
     </button>
     <div class="git-branch-picker">
       <button

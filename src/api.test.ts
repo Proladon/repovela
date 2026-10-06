@@ -3,11 +3,23 @@ import { beforeEach, expect, it, vi } from 'vitest';
 
 const dialog = vi.hoisted(() => ({ open: vi.fn() }));
 const core = vi.hoisted(() => ({ invoke: vi.fn(), isTauri: () => true }));
+const opener = vi.hoisted(() => ({ openUrl: vi.fn() }));
 vi.mock('@tauri-apps/plugin-dialog', () => dialog);
 vi.mock('@tauri-apps/api/core', () => core);
-import { chooseProjects, listSystemFonts } from './api';
+vi.mock('@tauri-apps/plugin-opener', () => opener);
+import { chooseProjects, listSystemFonts, openRepositoryWebsite } from './api';
 
 beforeEach(() => vi.resetAllMocks());
+
+it('使用原生 opener 開啟 repo 網站', async () => {
+  await openRepositoryWebsite('https://github.com/team/repo');
+  expect(opener.openUrl).toHaveBeenCalledExactlyOnceWith('https://github.com/team/repo');
+});
+
+it('網站 opener 不接收本機路徑或其他協定', async () => {
+  await expect(openRepositoryWebsite('file:///repo')).rejects.toThrow('HTTP 或 HTTPS');
+  expect(opener.openUrl).not.toHaveBeenCalled();
+});
 
 it('從桌面後端取得完整系統字體清單', async () => {
   core.invoke.mockResolvedValue(['Arial', '自訂安裝字體']);
