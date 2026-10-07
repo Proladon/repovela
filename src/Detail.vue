@@ -325,9 +325,16 @@ async function copy() {
                         "
                       >
                         <FileCode2 :size="15" /><span :title="f.path">{{ f.path }}</span
-                        ><small :class="f.conflict ? 'minus' : 'subtle'">{{
-                          f.conflict ? '衝突' : f.untracked ? '新增' : '變更'
-                        }}</small></button
+                        ><small
+                          :class="
+                            f.conflict
+                              ? 'kind-conflicted'
+                              : f.untracked
+                                ? 'kind-added'
+                                : 'kind-modified'
+                          "
+                          >{{ f.conflict ? '衝突' : f.untracked ? '新增' : '變更' }}</small
+                        ></button
                       ><button
                         class="soft-button icon-button git-icon-action"
                         :title="`${area === 'staged' ? '取消暫存' : '暫存'} ${f.path}`"
@@ -422,9 +429,9 @@ async function copy() {
                           })
                       "
                     >
-                      <span
-                        :class="`file-kind ${f.kind === 'Added' ? 'plus' : f.kind === 'Deleted' ? 'minus' : ''}`"
-                        >{{ f.kind.slice(0, 1) }}</span
+                      <span :class="`file-kind kind-${f.kind.toLowerCase()}`" :title="f.kind">{{
+                        f.kind.slice(0, 1)
+                      }}</span
                       ><span :title="f.path">{{ f.path }}</span
                       ><template v-if="f.binary"
                         ><small>{{ '二進位' }}</small></template

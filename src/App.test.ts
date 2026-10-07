@@ -2391,6 +2391,59 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(screen.getByText('目前的 diff')).toBeTruthy();
   });
 
+  it('commit 檔案的變更類型依 kind 套用對應的 class', async () => {
+    saveProjects();
+    const latest = detail(commits[0].oid);
+    latest.files = (['Added', 'Modified', 'Deleted', 'Renamed'] as const).map((kind) => ({
+      path: `${kind}.ts`,
+      kind,
+      insertions: 1,
+      deletions: 0,
+      binary: false,
+    }));
+    latest.totalFiles = latest.files.length;
+    mocked.commit.mockResolvedValue(latest);
+    render(App);
+    const panel = await screen.findByRole('region', { name: '詳細資訊' });
+    await within(panel).findByRole('button', { name: /Added.ts/ });
+    const kinds = Array.from(panel.querySelectorAll('.file-kind')).map((el) => [
+      el.textContent,
+      el.className,
+    ]);
+    expect(kinds).toEqual([
+      ['A', 'file-kind kind-added'],
+      ['M', 'file-kind kind-modified'],
+      ['D', 'file-kind kind-deleted'],
+      ['R', 'file-kind kind-renamed'],
+    ]);
+  });
+
+  it('工作區檔案標籤依衝突、新增、變更套用對應的 class', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      workingFiles: [
+        { path: 'c.txt', staged: false, unstaged: true, untracked: false, conflict: true },
+        { path: 'n.txt', staged: false, unstaged: true, untracked: true, conflict: false },
+        { path: 'm.txt', staged: false, unstaged: true, untracked: false, conflict: false },
+      ],
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(document.querySelector('.working-row')!);
+    const panel = await screen.findByRole('region', { name: '詳細資訊' });
+    await within(panel).findAllByRole('button', { name: /c.txt/ });
+    const labels = Array.from(panel.querySelectorAll('.file-row small')).map((el) => [
+      el.textContent,
+      el.className,
+    ]);
+    expect(labels).toEqual([
+      ['衝突', 'kind-conflicted'],
+      ['新增', 'kind-added'],
+      ['變更', 'kind-modified'],
+    ]);
+  });
+
   it.each(['隱藏終端機', '結束終端機'])('%s 更新 Git 資料時不插入進度區塊', async (name) => {
     saveProjects();
     render(App, {
