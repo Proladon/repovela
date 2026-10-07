@@ -2418,6 +2418,32 @@ describe('桌面分頁與瀏覽互動', () => {
     ]);
   });
 
+  it('工作區檔案標籤依衝突、新增、變更套用對應的 class', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      workingFiles: [
+        { path: 'c.txt', staged: false, unstaged: true, untracked: false, conflict: true },
+        { path: 'n.txt', staged: false, unstaged: true, untracked: true, conflict: false },
+        { path: 'm.txt', staged: false, unstaged: true, untracked: false, conflict: false },
+      ],
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(document.querySelector('.working-row')!);
+    const panel = await screen.findByRole('region', { name: '詳細資訊' });
+    await within(panel).findAllByRole('button', { name: /c.txt/ });
+    const labels = Array.from(panel.querySelectorAll('.file-row small')).map((el) => [
+      el.textContent,
+      el.className,
+    ]);
+    expect(labels).toEqual([
+      ['衝突', 'kind-conflicted'],
+      ['新增', 'kind-added'],
+      ['變更', 'kind-modified'],
+    ]);
+  });
+
   it.each(['隱藏終端機', '結束終端機'])('%s 更新 Git 資料時不插入進度區塊', async (name) => {
     saveProjects();
     render(App, {

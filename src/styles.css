@@ -1221,25 +1221,25 @@ pre {
   flex-shrink: 0;
   color: #a8b9db;
 }
-.file-kind.kind-added {
+.file-row .kind-added {
   color: #88c7a0;
 }
-.file-kind.kind-modified {
+.file-row .kind-modified {
   color: #e0b66f;
 }
-.file-kind.kind-deleted {
+.file-row .kind-deleted {
   color: #d98591;
 }
-.file-kind.kind-renamed {
+.file-row .kind-renamed {
   color: #7fb4e8;
 }
-.file-kind.kind-copied {
+.file-row .kind-copied {
   color: #6fc7c7;
 }
-.file-kind.kind-typechange {
+.file-row .kind-typechange {
   color: #b79be0;
 }
-.file-kind.kind-conflicted {
+.file-row .kind-conflicted {
   color: #f08a5d;
 }
 .empty-note {

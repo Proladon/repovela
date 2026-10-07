@@ -325,9 +325,16 @@ async function copy() {
                         "
                       >
                         <FileCode2 :size="15" /><span :title="f.path">{{ f.path }}</span
-                        ><small :class="f.conflict ? 'minus' : 'subtle'">{{
-                          f.conflict ? '衝突' : f.untracked ? '新增' : '變更'
-                        }}</small></button
+                        ><small
+                          :class="
+                            f.conflict
+                              ? 'kind-conflicted'
+                              : f.untracked
+                                ? 'kind-added'
+                                : 'kind-modified'
+                          "
+                          >{{ f.conflict ? '衝突' : f.untracked ? '新增' : '變更' }}</small
+                        ></button
                       ><button
                         class="soft-button icon-button git-icon-action"
                         :title="`${area === 'staged' ? '取消暫存' : '暫存'} ${f.path}`"

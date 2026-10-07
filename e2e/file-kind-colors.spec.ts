@@ -28,3 +28,27 @@ test('commit 檔案變更類型的顏色各不相同', async ({ page }) => {
   expect(colors[2]).toBe('rgb(217, 133, 145)');
   expect(colors[3]).toBe('rgb(127, 180, 232)');
 });
+
+test('工作區檔案標籤沿用相同的顏色', async ({ page }) => {
+  await page.goto('/?demo');
+  await page.getByRole('button', { name: '貼上專案路徑' }).click();
+  await page.getByRole('textbox', { name: '專案路徑' }).fill('demo://keifu');
+  await page.getByRole('dialog').getByRole('button', { name: '加入專案', exact: true }).click();
+  await page.locator('.detail-panel .file-row').first().waitFor();
+
+  const colors = await page
+    .locator('.detail-panel .file-row')
+    .first()
+    .evaluate((row) => {
+      return ['conflicted', 'added', 'modified'].map((kind) => {
+        const el = document.createElement('small');
+        el.className = `kind-${kind}`;
+        row.appendChild(el);
+        const color = getComputedStyle(el).color;
+        el.remove();
+        return color;
+      });
+    });
+
+  expect(colors).toEqual(['rgb(240, 138, 93)', 'rgb(136, 199, 160)', 'rgb(224, 182, 111)']);
+});
