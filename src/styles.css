@@ -1221,6 +1221,27 @@ pre {
   flex-shrink: 0;
   color: #a8b9db;
 }
+.file-kind.kind-added {
+  color: #88c7a0;
+}
+.file-kind.kind-modified {
+  color: #e0b66f;
+}
+.file-kind.kind-deleted {
+  color: #d98591;
+}
+.file-kind.kind-renamed {
+  color: #7fb4e8;
+}
+.file-kind.kind-copied {
+  color: #6fc7c7;
+}
+.file-kind.kind-typechange {
+  color: #b79be0;
+}
+.file-kind.kind-conflicted {
+  color: #f08a5d;
+}
 .empty-note {
   font-size: calc(11px * var(--font-scale, 1));
   line-height: 1.7;

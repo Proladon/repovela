@@ -422,9 +422,9 @@ async function copy() {
                           })
                       "
                     >
-                      <span
-                        :class="`file-kind ${f.kind === 'Added' ? 'plus' : f.kind === 'Deleted' ? 'minus' : ''}`"
-                        >{{ f.kind.slice(0, 1) }}</span
+                      <span :class="`file-kind kind-${f.kind.toLowerCase()}`" :title="f.kind">{{
+                        f.kind.slice(0, 1)
+                      }}</span
                       ><span :title="f.path">{{ f.path }}</span
                       ><template v-if="f.binary"
                         ><small>{{ '二進位' }}</small></template
