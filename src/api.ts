@@ -1,7 +1,19 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import type { CommitDetail, FilePatch, GitRequest, Project, Snapshot } from './types';
+import type {
+  ChangeRequestPage,
+  Forge,
+  RequestState,
+  RequestDetail,
+  RequestChanges,
+  RequestAction,
+  CommitDetail,
+  FilePatch,
+  GitRequest,
+  Project,
+  Snapshot,
+} from './types';
 
 export const native = isTauri();
 export const demo =
@@ -48,6 +60,18 @@ async function call<T>(command: string, args: Record<string, unknown>): Promise<
     return snapshot as T;
   }
   if (command === 'read_commit') return data.details[String(args.oid)] as T;
+  if (command === 'read_change_requests') {
+    const { demoChangeRequests } = await import('./demo-change-requests');
+    return demoChangeRequests(args.provider as Forge, args.state as RequestState) as T;
+  }
+  if (command === 'read_request_detail' || command === 'read_request_changes') {
+    const { demoRequestDetail, demoRequestChanges } = await import('./demo-change-requests');
+    return (
+      command === 'read_request_detail'
+        ? demoRequestDetail(args.provider as Forge, Number(args.number))
+        : demoRequestChanges()
+    ) as T;
+  }
   if (command === 'read_patch') {
     const patch = data.patches[`${args.oid}:${args.file}`];
     if (!patch)
@@ -63,6 +87,35 @@ export async function chooseProjects(): Promise<string[]> {
 }
 
 export const api = {
+  requestDetail: (path: string, remote: string, provider: Forge, number: number) =>
+    call<RequestDetail>('read_request_detail', { path, remote, provider, number }),
+  requestChanges: (
+    path: string,
+    remote: string,
+    provider: Forge,
+    number: number,
+    expectedHead: string,
+    cursor: string | null = null,
+  ) =>
+    call<RequestChanges>('read_request_changes', {
+      path,
+      remote,
+      provider,
+      number,
+      expectedHead,
+      cursor,
+    }),
+  requestAction: (path: string, remote: string, provider: Forge, request: RequestAction) => {
+    if (!native) return Promise.reject(new Error('PR／MR 操作請使用桌面版。'));
+    return call<string>('operate_request', { path, remote, provider, request });
+  },
+  changeRequests: (
+    path: string,
+    remote: string,
+    provider: Forge,
+    state: RequestState,
+    cursor: string | null = null,
+  ) => call<ChangeRequestPage>('read_change_requests', { path, remote, provider, state, cursor }),
   trustProject: (path: string) => {
     if (!native) return Promise.reject(new Error('信任本機專案請使用桌面版。'));
     return call<Project>('trust_project', { path });

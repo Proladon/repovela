@@ -20,6 +20,9 @@ const mocked = vi.hoisted(() => ({
   trust: vi.fn(),
   fonts: vi.fn(),
   website: vi.fn(),
+  requests: vi.fn(),
+  requestDetail: vi.fn(),
+  requestAction: vi.fn(),
 }));
 vi.mock('./api', () => ({
   native: true,
@@ -34,6 +37,9 @@ vi.mock('./api', () => ({
     patch: mocked.patch,
     openProject: mocked.open,
     trustProject: mocked.trust,
+    changeRequests: mocked.requests,
+    requestDetail: mocked.requestDetail,
+    requestAction: mocked.requestAction,
   },
 }));
 
@@ -119,6 +125,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.fonts.mockResolvedValue(['Arial', '自訂安裝字體']);
   mocked.website.mockResolvedValue(undefined);
+  mocked.requests.mockResolvedValue({ items: [], nextCursor: null });
   mocked.operate.mockResolvedValue('ok');
   mocked.repository.mockImplementation(async (path: string) => snapshot(path));
   mocked.commit.mockImplementation(async (_path: string, oid: string) => detail(oid));
@@ -142,6 +149,95 @@ afterEach(() => {
 });
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('遠端操作期間可切換專案，但不卸載原頁或允許關閉進行中的專案', async () => {
+    saveProjects();
+    const request = {
+      number: 7,
+      title: '遠端 PR',
+      body: '',
+      author: 'dev',
+      state: 'open',
+      draft: false,
+      sourceBranch: 'feature',
+      targetBranch: 'main',
+      updatedAt: '2026-10-12T08:00:00Z',
+      url: 'https://github.com/team/repo/pull/7',
+      labels: [],
+    };
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      remotes: path === '/a' ? [{ name: 'origin', url: 'https://github.com/team/repo.git' }] : [],
+    }));
+    mocked.requests.mockResolvedValue({ items: [request], nextCursor: null });
+    mocked.requestDetail.mockResolvedValue({
+      request,
+      headOid: 'a'.repeat(40),
+      mergeStatus: 'clean',
+    });
+    let complete!: (message: string) => void;
+    mocked.requestAction.mockReturnValue(
+      new Promise<string>((resolve) => {
+        complete = resolve;
+      }),
+    );
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '瀏覽 PR／MR' }));
+    await fireEvent.click(await screen.findByRole('button', { name: '留言' }));
+    await fireEvent.update(screen.getByRole('textbox', { name: 'PR／MR 操作內容' }), '留言');
+    await fireEvent.click(screen.getByRole('button', { name: '確認留言' }));
+    expect(screen.getByRole('button', { name: '建立 PR／MR' }).hasAttribute('disabled')).toBe(true);
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    expect(mocked.requests).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: '建立 PR／MR' })).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '關閉 專案 A 分頁' }));
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
+    expect(screen.getByRole('button', { name: 'Git 歷史' }).hasAttribute('disabled')).toBe(true);
+    complete('留言已送出');
+    await screen.findByText('留言已送出');
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Git 歷史' }).hasAttribute('disabled')).toBe(false),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Git 歷史' }));
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(mocked.requestAction).toHaveBeenCalledTimes(1);
+  });
+  it('PR／MR 切換整頁、保留側邊欄，返回歷史與切換專案不混用', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      remotes: path === '/a' ? [{ name: 'origin', url: 'git@github.com:team/a.git' }] : [],
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '瀏覽 PR／MR' }));
+    await screen.findByRole('region', { name: 'PR／MR' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('button', { name: '專案 A' })).toBeTruthy();
+    expect(mocked.requests).toHaveBeenCalledExactlyOnceWith('/a', 'origin', 'github', 'open', null);
+    const create = within(document.querySelector('.toolbar') as HTMLElement).getByRole('button', {
+      name: '建立 PR／MR',
+    });
+    await waitFor(() => expect(create.hasAttribute('disabled')).toBe(false));
+    await fireEvent.click(create);
+    await fireEvent.update(
+      await screen.findByRole('textbox', { name: 'PR／MR 標題' }),
+      '專案 A 的建立草稿',
+    );
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    expect(screen.queryByRole('button', { name: '建立 PR／MR' })).toBeNull();
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 A' }));
+    expect(
+      ((await screen.findByRole('textbox', { name: 'PR／MR 標題' })) as HTMLInputElement).value,
+    ).toBe('專案 A 的建立草稿');
+    await fireEvent.click(screen.getByRole('button', { name: 'Git 歷史' }));
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    expect(screen.getByRole('button', { name: '瀏覽 PR／MR' }).hasAttribute('disabled')).toBe(true);
+    expect(mocked.operate).not.toHaveBeenCalled();
+  });
   it('側邊欄可用鍵盤調整、保存與重設，視窗縮小時保留主區空間', async () => {
     saveProjects();
     render(App);
