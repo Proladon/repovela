@@ -1,5 +1,59 @@
 # 驗證記錄
 
+## 2026-10-12：PR／MR 操作移到工具列
+
+移除 PR／MR 額外標題列、頂部外層留白與面板上方圓角。「建立 PR／MR」及來源設定移至專案工具列，清單直接接在工具列下方。工具列僅呈現目前專案的操作；切換專案保留建立表單與進行中的操作，執行期間仍停用建立按鈕。
+
+198 項前端測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。App 測試確認工具列建立表單、切換專案後輸入保留、其他專案不顯示此按鈕及操作期間停用。初次與編譯並行時一項測試超過 5 秒，單獨重跑及完整重跑均通過，未調整 timeout。Chromium 1360×640／1000×640 既有流程及 Windows／WebView2 原生流程通過，已檢視新畫面截圖。使用者執行中的原 debug 執行檔無法覆寫，新編譯結果已更新至 `src-tauri/target/debug/repovela-pr-panels.exe` 並以此完成原生驗證。暫時的 Chromium 埠設定已移除。
+
+## 2026-10-12：PR／MR 頁面用滿寬度
+
+移除 PR／MR 頁面在一般與窄視窗的左右外層 padding，讓清單與內容面板貼齊主內容邊界；保留面板內文字與操作控制的間距。
+
+Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。Chromium 的 1360×640／1000×640 既有流程及 Windows／WebView2 原生流程通過，兩個清單 resize 與保存維持正常。Windows 新截圖確認面板用滿主內容寬度。使用者執行中的原 debug 執行檔無法覆寫，新編譯結果已更新至 `src-tauri/target/debug/repovela-pr-panels.exe` 並完成驗證。Chromium 使用的暫時埠設定已移除。
+
+## 2026-10-12：移除 PR／MR 標題網址
+
+移除 PR／MR 標題旁重複的 repo 網址，保留工具列的 repo 網站按鈕、內容中的 PR／MR 網站按鈕與來源設定，建立按鈕維持靠右。
+
+13 項頁面測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。Windows／WebView2 原生 PR／MR 流程及新畫面截圖驗證通過。使用者執行中的原 debug 執行檔無法覆寫，將新編譯結果更新至 `src-tauri/target/debug/repovela-pr-panels.exe` 並以此檔驗證。
+
+## 2026-10-12：PR／MR 清單內篩選
+
+將狀態篩選與重新整理移至左側 PR／MR 清單頂部，移除頁面上方的常駐遠端／平台選單。一般專案自動辨識平台；多遠端與未知主機的選項收進標題旁的來源設定，操作期間禁止更換來源，切換專案或焦點離開時收合。
+
+198 項前端測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。Chromium 的 1360×640／1000×640 流程確認選單簡化、清單內篩選、兩面板 resize、重開保存；Windows／WebView2 原生流程完成來源設定內切換 GitHub／GitLab、狀態篩選、Changes 及相關操作。截圖已檢視。Rust 執行檔已編譯，原 debug 執行檔因使用者正在執行而無法覆寫，將編譯結果另存為 `src-tauri/target/debug/repovela-pr-panels.exe` 並使用此檔完成原生驗證。Chromium 使用暫時的 5193 埠設定避開既有服務，完成後已移除暫時設定檔。
+
+## 2026-10-12：Changes 檔案清單調整寬度
+
+Changes 檔案清單新增可拖曳的右邊界，沿用方向鍵 16px／Shift 4px 微調、End 上限及雙擊／Home 還原。以獨立的 `changesListWidth` 偏好設定保存，不影響左側 PR／MR 清單；切換概覽、PR／MR 或重開時還原。ResizeObserver 依可用空間限制寬度，保留 diff 空間；暫時縮小視窗不覆寫保存值。切換專案、失去 Pointer Capture 或卸載時結束拖曳並清理事件。
+
+198 項前端測試、Vue 型別／Vite 建置通過。Chromium 的 1360×640／1000×640 流程完成兩清單獨立拖曳、方向鍵／Shift、雙擊／Home／End、縮小與放大、切換概覽及重載還原。Windows／WebView2 使用新 debug 執行檔完成 Changes 清單 170→210px 拖曳與方向鍵調整至 194px，左側 PR／MR 清單維持 274px；原生 PR／MR／Changes／操作流程通過。兩種環境截圖已檢視，新版本位於 `src-tauri/target/debug/repovela.exe`。
+
+## 2026-10-12：PR／MR 清單調整寬度
+
+左側 PR／MR 清單新增垂直拖曳邊界，支援滑鼠／Pointer Capture、方向鍵 16px 微調、Shift 4px、End 上限與雙擊／Home 還原。分隔線提供焦點與 ARIA 寬度資訊；結束拖曳、失去捕捉、切換專案或卸載時清理。透過 ResizeObserver 依可用空間限制寬度，保留右側內容；視窗縮小不覆寫使用者原設定，放大後恢復。寬度存於既有偏好設定的 `requestListWidth`，舊資料與 null 使用自動布局，重開保留設定。
+
+197 項前端測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。Chromium 的 1360×640／1000×640 流程完成拖曳、方向鍵、雙擊／Home／End、縮至 850px 後再放大、重載還原，並確認 Changes 與所選項目保留。Windows／WebView2 使用新 debug 執行檔完成 1000×640 的 210→290px 拖曳及方向鍵調整至 274px，原生 PR／MR／Changes／操作流程也通過；截圖已檢視。新版本位於 `src-tauri/target/debug/repovela.exe`。
+
+## 2026-10-12：PR／MR 整頁、Changes 與操作
+
+PR／MR 改為專案主內容的整頁視圖，保留側邊欄與專案分頁，按「Git 歷史」返回原 commit／diff。概覽讀取最新來源 SHA、平台合併狀態與說明；Changes 分頁列出變更檔案、增刪行數、重新命名及含行號的 diff，支援檔案分頁、過期回應隔離、二進位／截斷提示及 1 MB／10,000 行上限。讀取前後核對來源提交，拒絕跨版本拼接。
+
+頁內表單可建立、留言、核准、合併、關閉／重開與切換草稿；GitHub 支援要求修改與 Merge／Squash／Rebase，GitLab 支援撤銷核准與 Merge／Squash。寫入前核對提交、狀態與合併目標；合併傳入 SHA，審核傳入所查看的 commit。不啟用自動合併或管理員繞過，不推送本機分支。操作期間鎖住所選目標並防止重複送出，切換專案保留進行中的頁面；禁止關閉執行中的專案或安裝更新。錯誤後提示核對平台結果，保留同目標表單輸入。
+
+196 項前端測試與 48 項 Rust 測試通過；其中 14 項 PR／MR Rust 測試涵蓋全部平台操作請求、建立、提交／狀態／目標過期防護、來源在 Changes 讀取途中更新、UTF-8／超大 diff、GraphQL／合併回應錯誤與 GitLab 所有草稿標記。Vue 型別／Vite 建置、Clippy 全 targets、Rustfmt 及格式檢查通過。Chromium 的 1360×640／1000×640 整頁、Changes、搜尋快捷鍵、二進位提示與返回歷史流程通過，1000px 截圖已檢視。
+
+Windows debug 建置完成，`e2e/windows/change-requests.spec.ts` 透過真正 WebView2、Tauri IPC 與隔離 CLI 程序完成 PR／MR 清單／檔案分頁、Changes、建立 PR、留言、核准與 GitLab Squash 合併、讀取錯誤重試、返回歷史與專案隔離。核對原 Git config 不變，操作內容與 SHA 經實際 CLI 引數傳遞。CLI 的遠端回應使用 fixture；未對真實遠端執行寫入，GitLab／自架平台實際網路與權限尚未實測。新測試版位於 `src-tauri/target/debug/repovela.exe`。
+
+## 2026-10-12：專案 PR／MR 瀏覽
+
+工具列與右鍵選單新增 PR／MR 瀏覽視窗。透過本機 `gh`／`glab` 讀取所選遠端，支援 GitHub、自架平台與 GitLab 子群組，提供狀態篩選、每頁 30 筆、載入更多、已載入資料搜尋、作者、草稿、分支、標籤及原始說明文字。未知主機由使用者選擇平台。回應以請求版本隔離，切換遠端／狀態與關閉視窗會忽略過期回應；分頁失敗保留清單及游標，可重試。CLI 沿用登入設定，在背景執行並限制 45 秒及 16 MB 輸出，不修改 Git 資料。
+
+186 項前端測試、Vue 型別／Vite 建置、Rust 既有完整套件測試及六項 PR／MR 回歸、Clippy 全 targets、Rustfmt、Prettier 與 diff 空白檢查通過。以實際 GitHub API 驗證查詢可讀取此專案的 PR。Chromium 的 1360×640、1000×640 瀏覽／篩選／搜尋／焦點／幾何檢查通過，已檢視小視窗截圖並修正重新整理圖示尺寸。
+
+Tauri debug 建置完成，測試執行檔為 `src-tauri/target/debug/repovela.exe`。新增 `e2e/windows/change-requests.spec.ts`，透過真正 WebView2、Tauri IPC、Rust 解析及外部 CLI 程序驗證 GitHub／GitLab、多遠端、子群組、30 筆分頁、去重、合併狀態、登入錯誤／重試、搜尋與專案隔離，並確認 Git config 不變。測試僅以隔離的 fixture CLI 取代外部網路回應，不讀取使用者憑證；此原生流程通過，1000×640 截圖已檢視。GitLab 真實網路登入、自架主機、macOS／Linux 尚未實測；尚未提供內建 diff 或審核操作。
+
 ## 2026-10-06：專案群組拖曳排序
 
 群組標題支援拖曳排序，展開、折疊及空群組皆可移動；透過原 session 保存群組順序，保留專案成員、釘選、折疊與分頁。搜尋中只交換可見群組，保留隱藏群組位置。外層 Sortable 使用獨立的預設群組，避免屬性更新重設具名群組後阻擋自身排序；群組與專案分別使用標題與專案列作為拖曳範圍。垂直排序及交換門檻支援巢狀清單。

@@ -7,6 +7,69 @@ export interface Remote {
   url: string;
 }
 
+export type Forge = 'github' | 'gitlab';
+export type RequestState = 'open' | 'merged' | 'closed' | 'all';
+export interface ChangeRequest {
+  number: number;
+  title: string;
+  body: string;
+  author: string;
+  state: 'open' | 'merged' | 'closed' | 'locked';
+  draft: boolean;
+  sourceBranch: string;
+  targetBranch: string;
+  updatedAt: string;
+  url: string;
+  labels: string[];
+}
+export interface ChangeRequestPage {
+  items: ChangeRequest[];
+  nextCursor: string | null;
+}
+export interface RequestDetail {
+  request: ChangeRequest;
+  headOid: string;
+  mergeStatus: string;
+}
+export interface RequestFile {
+  path: string;
+  previousPath: string | null;
+  kind: string;
+  additions: number;
+  deletions: number;
+  patch: string | null;
+  truncated: boolean;
+}
+export interface RequestChanges {
+  files: RequestFile[];
+  headOid: string;
+  nextCursor: string | null;
+}
+export type RequestOperation =
+  | 'create'
+  | 'comment'
+  | 'approve'
+  | 'requestChanges'
+  | 'unapprove'
+  | 'merge'
+  | 'close'
+  | 'reopen'
+  | 'draft'
+  | 'ready';
+export interface RequestAction {
+  operation: RequestOperation;
+  number?: number;
+  expectedHead?: string;
+  expectedState?: string;
+  expectedTarget?: string;
+  message?: string;
+  title?: string;
+  sourceBranch?: string;
+  targetBranch?: string;
+  draft?: boolean;
+  mergeMethod?: 'merge' | 'squash' | 'rebase';
+}
+
 export interface OwnershipIssue {
   kind: 'ownership';
   path: string;

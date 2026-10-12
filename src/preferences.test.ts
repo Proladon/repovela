@@ -2,6 +2,33 @@ import { describe, expect, it } from 'vitest';
 import { defaultPreferences, fontStack, restorePreferences } from './preferences';
 
 describe('偏好設定保存與還原', () => {
+  it('Changes 清單獨立保存寬度，缺少或無效設定沿用自動寬度', () => {
+    for (const [saved, expected] of [
+      [320, 320],
+      [5000, 1000],
+      [100, 170],
+      [240.7, 241],
+    ]) {
+      const restored = restorePreferences(
+        JSON.stringify({ version: 1, changesListWidth: saved, requestListWidth: 400 }),
+      );
+      expect(restored.changesListWidth).toBe(expected);
+      expect(restored.requestListWidth).toBe(400);
+    }
+    for (const data of [{}, { changesListWidth: null }, { changesListWidth: '320' }])
+      expect(
+        restorePreferences(JSON.stringify({ version: 1, ...data })).changesListWidth,
+      ).toBeNull();
+  });
+  it('PR／MR 清單寬度可保存，舊設定與重設保留自動寬度', () => {
+    expect(restorePreferences('{"version":1,"requestListWidth":320}').requestListWidth).toBe(320);
+    expect(restorePreferences('{"version":1,"requestListWidth":5000}').requestListWidth).toBe(1000);
+    expect(restorePreferences('{"version":1,"requestListWidth":100}').requestListWidth).toBe(210);
+    for (const data of [{}, { requestListWidth: null }, { requestListWidth: '320' }])
+      expect(
+        restorePreferences(JSON.stringify({ version: 1, ...data })).requestListWidth,
+      ).toBeNull();
+  });
   it('側邊欄寬度會保存、限制範圍，舊設定沿用 216px', () => {
     for (const [saved, expected] of [
       [320, 320],

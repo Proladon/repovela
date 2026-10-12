@@ -3,6 +3,74 @@ use tauri::Manager;
 mod terminal;
 
 #[tauri::command]
+async fn read_request_detail(
+    path: String,
+    remote: String,
+    provider: repovela_core::Forge,
+    number: u64,
+) -> Result<repovela_core::RequestDetail, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        repovela_core::read_request_detail(&path, &remote, provider, number)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn read_request_changes(
+    path: String,
+    remote: String,
+    provider: repovela_core::Forge,
+    number: u64,
+    expected_head: String,
+    cursor: Option<String>,
+) -> Result<repovela_core::RequestChanges, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        repovela_core::read_request_changes(
+            &path,
+            &remote,
+            provider,
+            number,
+            &expected_head,
+            cursor.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+#[tauri::command]
+async fn operate_request(
+    path: String,
+    remote: String,
+    provider: repovela_core::Forge,
+    request: repovela_core::RequestAction,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        repovela_core::operate_request(&path, &remote, provider, request)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
+async fn read_change_requests(
+    path: String,
+    remote: String,
+    provider: repovela_core::Forge,
+    state: repovela_core::RequestState,
+    cursor: Option<String>,
+) -> Result<repovela_core::ChangeRequestPage, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        repovela_core::read_change_requests(&path, &remote, provider, state, cursor.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 fn prepare_update_install(app: tauri::AppHandle) {
     // Windows 更新器會直接結束程式，先清理仍在執行的 shell。
     app.state::<terminal::Terminals>().close_all(false);
@@ -109,6 +177,10 @@ pub fn run() {
             open_project,
             trust_project,
             read_repository,
+            read_change_requests,
+            read_request_detail,
+            read_request_changes,
+            operate_request,
             read_commit,
             read_patch,
             git_operation,

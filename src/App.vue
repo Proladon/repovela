@@ -17,6 +17,7 @@ import {
   GitBranchPlus,
   GitCommitHorizontal,
   GitMerge,
+  GitPullRequest,
   GitFork,
   Layers3,
   ListMinus,
@@ -44,6 +45,7 @@ import ContextMenu from './ContextMenu.vue';
 import CommitActionDialog from './CommitActionDialog.vue';
 import SyncBranchDialog from './SyncBranchDialog.vue';
 import StashDialog from './StashDialog.vue';
+import ChangeRequestsPage from './ChangeRequestsPage.vue';
 import TrustProjectDialog from './TrustProjectDialog.vue';
 import { provideContextMenu, type MenuItem } from './contextMenu';
 import ColumnHeading from './ColumnHeading.vue';
@@ -71,6 +73,27 @@ const ownershipIssue = computed(() => ownershipIssues.value[0]);
 const trusting = ref(false);
 const gitActions = ref<InstanceType<typeof GitActions> | null>(null);
 const stashOpen = ref(false);
+const requestPaths = ref<string[]>([]);
+const requestBusyPaths = ref<string[]>([]);
+const requestsOpen = computed(() => !!tab.value && requestPaths.value.includes(tab.value.path));
+const requestTabs = computed(() =>
+  session.value.tabs.filter((t) => requestPaths.value.includes(t.path)),
+);
+function requestBusy(path: string, busy: boolean) {
+  requestBusyPaths.value = [
+    ...requestBusyPaths.value.filter((p) => p !== path),
+    ...(busy ? [path] : []),
+  ];
+}
+function openRequests() {
+  if (loading.value || !repositoryLinks.value.length || !tab.value) return;
+  branchMenu.value = false;
+  if (!requestsOpen.value) requestPaths.value.push(tab.value.path);
+}
+function openHistory() {
+  if (!tab.value || requestBusyPaths.value.includes(tab.value.path)) return;
+  requestPaths.value = requestPaths.value.filter((p) => p !== tab.value!.path);
+}
 const stashError = ref('');
 function openStash() {
   if (!native || operating.value || loading.value) return;
@@ -99,7 +122,9 @@ const syncBranchAction = shallowRef<{
 } | null>(null);
 
 const storageKey = demo ? `${STORAGE_KEY}-demo` : STORAGE_KEY;
-const updater = useAppUpdate(() => !operating.value && !adding.value && !trusting.value);
+const updater = useAppUpdate(
+  () => !operating.value && !adding.value && !trusting.value && !requestBusyPaths.value.length,
+);
 const preferencesStorageKey = demo ? `${PREFERENCES_KEY}-demo` : PREFERENCES_KEY;
 const preferences = shallowRef(
   (() => {
@@ -120,6 +145,13 @@ const session = shallowRef(
   })(),
 );
 const dispatch = (action: Action) => {
+  if (
+    (action.type === 'close' || action.type === 'remove') &&
+    requestBusyPaths.value.includes(action.path)
+  ) {
+    message.value = '此專案正在執行 PR／MR 操作，請等操作完成後再關閉。';
+    return;
+  }
   let next = sessionReducer(session.value, action);
   if (action.type === 'add' || action.type === 'open') {
     next = {
@@ -140,6 +172,7 @@ const dispatch = (action: Action) => {
       const remaining = new Map(resources.value);
       remaining.delete(previousTab.path);
       resources.value = remaining;
+      requestPaths.value = requestPaths.value.filter((p) => p !== previousTab.path);
       terminalPaths.value = terminalPaths.value.filter((path) => path !== previousTab.path);
       visibleTerminalPaths.value = visibleTerminalPaths.value.filter(
         (path) => path !== previousTab.path,
@@ -762,6 +795,12 @@ function openRepositoryMenu(event: MouseEvent) {
     },
     { label: '分支操作', icon: GitBranch, disabled, run: () => gitActions.value?.openBranches() },
     { label: 'Stash', icon: Archive, disabled, run: openStash },
+    {
+      label: '瀏覽 PR／MR',
+      icon: GitPullRequest,
+      disabled: loading.value || !repositoryLinks.value.length,
+      run: openRequests,
+    },
     ...branchFocusItems(true),
   ]);
 }
@@ -1120,7 +1159,13 @@ function handleKeydown(e: KeyboardEvent) {
   }
   if (modifier && e.key.toLowerCase() === 'f') {
     e.preventDefault();
-    document.getElementById('history-search')?.focus();
+    if (requestsOpen.value)
+      document
+        .querySelector<HTMLInputElement>(
+          ".requests-page:not([aria-hidden='true']) .request-search input",
+        )
+        ?.focus();
+    else document.getElementById('history-search')?.focus();
   }
   if (e.key === 'Escape') {
     branchMenu.value = false;
@@ -1129,6 +1174,7 @@ function handleKeydown(e: KeyboardEvent) {
     rename.value = null;
     help.value = false;
   }
+  if (requestsOpen.value) return;
   if (
     !editing &&
     !modifier &&
@@ -1314,6 +1360,29 @@ onUnmounted(() => {
             </div>
             <div class="toolbar-actions">
               <button
+                v-if="requestsOpen"
+                class="soft-button"
+                :disabled="requestBusyPaths.includes(tab.path)"
+                @click="openHistory"
+              >
+                <GitCommitHorizontal :size="15" />Git 歷史
+              </button>
+              <div v-if="requestsOpen" id="request-toolbar" />
+              <button
+                class="soft-button icon-button git-icon-action"
+                :disabled="loading || !repositoryLinks.length"
+                :title="
+                  repositoryLinks.length
+                    ? '瀏覽專案的 PR／MR'
+                    : '此專案沒有可瀏覽 PR／MR 的遠端網址'
+                "
+                aria-label="瀏覽 PR／MR"
+                :aria-pressed="requestsOpen"
+                @click="openRequests"
+              >
+                <GitPullRequest :size="15" />
+              </button>
+              <button
                 class="soft-button icon-button git-icon-action"
                 :disabled="loading || openingRepository || !repositoryLinks.length"
                 :title="repositoryWebsiteTitle"
@@ -1334,7 +1403,7 @@ onUnmounted(() => {
               </button>
               <GitActions
                 ref="gitActions"
-                v-if="snapshot"
+                v-if="snapshot && !requestsOpen"
                 :key="tab.path"
                 :snapshot="snapshot"
                 :busy="operating || loading"
@@ -1343,6 +1412,7 @@ onUnmounted(() => {
               />
               <button
                 ref="primaryBranchButton"
+                v-show="!requestsOpen"
                 class="soft-button icon-button git-icon-action"
                 @click="focusPrimaryBranch"
                 :disabled="loading || operating || (!primaryBranches.length && !snapshot?.headOid)"
@@ -1353,7 +1423,7 @@ onUnmounted(() => {
               >
                 <LocateFixed :size="15" />
               </button>
-              <div class="branch-picker">
+              <div class="branch-picker" v-show="!requestsOpen">
                 <button
                   class="soft-button"
                   @click="() => (branchMenu = !branchMenu)"
@@ -1394,6 +1464,7 @@ onUnmounted(() => {
               </div>
               <button
                 :class="`soft-button icon-button git-icon-action refresh-button ${loading ? 'refreshing' : ''}`"
+                v-show="!requestsOpen"
                 @click="reloadRepository"
                 :disabled="loading || operating"
                 title="重新整理（R）"
@@ -1404,7 +1475,7 @@ onUnmounted(() => {
             </div>
           </div>
           <div id="git-operation-status" class="git-operation-status" />
-          <div class="repo-meta">
+          <div class="repo-meta" v-show="!requestsOpen">
             <span
               ><GitBranch :size="12" />{{
                 snapshot?.branches.filter((b) => !b.isRemote).length ?? '—'
@@ -1427,7 +1498,7 @@ onUnmounted(() => {
               />{{ '顯示遠端分支' }}</label
             >
           </div>
-          <template v-if="error"
+          <template v-if="error && !requestsOpen"
             ><div class="main-empty">
               <FolderGit2 :size="38" />
               <h2>{{ '專案暫時無法讀取' }}</h2>
@@ -1438,13 +1509,14 @@ onUnmounted(() => {
             </div></template
           ><template v-else
             ><template v-if="!snapshot"
-              ><div class="main-empty">
+              ><div class="main-empty" v-show="!requestsOpen">
                 <div class="spinner" />
                 <p>{{ '正在讀取 Git 歷史…' }}</p>
               </div></template
             ><template v-else
               ><div
                 ref="workspaceRef"
+                v-show="!requestsOpen"
                 class="workspace"
                 :class="{ 'detail-hidden': !detailVisible, 'resizing-detail': resizingDetail }"
                 :style="{ '--detail-width': `${detailWidth}%` }"
@@ -1637,8 +1709,26 @@ onUnmounted(() => {
                     @close="closeDetail"
                     @stash="openStash"
                   />
-                </div></div></template
+                </div>
+              </div> </template
           ></template>
+          <ChangeRequestsPage
+            v-for="requestTab in requestTabs"
+            :key="requestTab.path"
+            v-show="requestTab.path === tab.path && requestsOpen"
+            :path="requestTab.path"
+            :name="
+              session.projects.find((p) => p.path === requestTab.path)?.name ?? requestTab.path
+            "
+            :remotes="resources.get(requestTab.path)?.data?.remotes ?? []"
+            :active="requestTab.path === tab.path && requestsOpen"
+            :list-width="preferences.requestListWidth"
+            :changes-width="preferences.changesListWidth"
+            toolbar-target="#request-toolbar"
+            @resize-list="preferences = { ...preferences, requestListWidth: $event }"
+            @resize-changes="preferences = { ...preferences, changesListWidth: $event }"
+            @busy="requestBusy(requestTab.path, $event)"
+          />
           <TerminalPanel
             v-for="terminalTab in terminalTabs"
             :key="terminalTab.path"
@@ -1653,16 +1743,20 @@ onUnmounted(() => {
           />
           <footer class="status-bar">
             <span class="status-dot" /><span role="status">{{
-              operating
-                ? '正在執行 Git 操作…'
-                : loading
-                  ? '正在更新…'
-                  : error
-                    ? '讀取失敗'
-                    : '已同步本機資料'
+              requestBusyPaths.includes(tab.path)
+                ? '正在執行 PR／MR 操作…'
+                : requestsOpen
+                  ? 'PR／MR'
+                  : operating
+                    ? '正在執行 Git 操作…'
+                    : loading
+                      ? '正在更新…'
+                      : error
+                        ? '讀取失敗'
+                        : '已同步本機資料'
             }}</span
-            ><span class="meta-spacer" /><span>{{ 'j / k 瀏覽' }}</span
-            ><span>{{ '@ 跳至 HEAD' }}</span
+            ><span class="meta-spacer" /><span v-if="!requestsOpen">{{ 'j / k 瀏覽' }}</span
+            ><span v-if="!requestsOpen">{{ '@ 跳至 HEAD' }}</span
             ><span>{{ 'Ctrl Tab 切換專案' }}</span>
           </footer></template
         ><template v-else

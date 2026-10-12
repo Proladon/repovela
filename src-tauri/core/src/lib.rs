@@ -1,9 +1,16 @@
 //! Desktop adapter around keifu's commit graph engine.
+mod change_request_actions;
+mod change_requests;
+pub use change_request_actions::{
+    operate_request, read_request_changes, read_request_detail, RequestAction, RequestChanges,
+    RequestDetail,
+};
 pub mod git;
 pub mod graph;
 mod operations;
 mod stash;
 mod trust;
+pub use change_requests::{read_change_requests, ChangeRequestPage, Forge, RequestState};
 pub use operations::{git_operation, GitOperation, GitRequest};
 pub use stash::StashEntry;
 pub use trust::{open_project_for_ui, trust_project, ProjectOpenError};

@@ -14,6 +14,8 @@ export interface Preferences {
   defaultRemotes: boolean;
   defaultCommitLimit: number;
   sidebarWidth: number;
+  requestListWidth: number | null;
+  changesListWidth: number | null;
 }
 
 export const PREFERENCES_KEY = 'repovela-preferences-v1';
@@ -33,6 +35,8 @@ export const defaultPreferences: Preferences = {
   defaultRemotes: true,
   defaultCommitLimit: 500,
   sidebarWidth: 216,
+  requestListWidth: null,
+  changesListWidth: null,
 };
 
 export function restorePreferences(raw: string | null): Preferences {
@@ -64,6 +68,10 @@ export function restorePreferences(raw: string | null): Preferences {
       result.fontSize = Math.max(11, Math.min(20, Math.round(data.fontSize)));
     if (typeof data.sidebarWidth === 'number' && Number.isFinite(data.sidebarWidth))
       result.sidebarWidth = Math.max(180, Math.min(480, Math.round(data.sidebarWidth)));
+    if (typeof data.requestListWidth === 'number' && Number.isFinite(data.requestListWidth))
+      result.requestListWidth = Math.max(210, Math.min(1000, Math.round(data.requestListWidth)));
+    if (typeof data.changesListWidth === 'number' && Number.isFinite(data.changesListWidth))
+      result.changesListWidth = Math.max(170, Math.min(1000, Math.round(data.changesListWidth)));
     if (data.density === 'compact' || data.density === 'comfortable') result.density = data.density;
     if (data.dateFormat === 'short' || data.dateFormat === 'full')
       result.dateFormat = data.dateFormat;
