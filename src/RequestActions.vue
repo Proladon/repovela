@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { native } from './api';
+import MarkdownPreview from './MarkdownPreview.vue';
 import type { Forge, RequestAction, RequestDetail, RequestOperation } from './types';
 const props = defineProps<{
   detail: RequestDetail;
@@ -131,6 +132,10 @@ async function submit() {
           maxlength="65536"
         />
       </label>
+      <MarkdownPreview
+        v-if="['comment', 'approve', 'requestChanges'].includes(operation)"
+        :content="message"
+      />
       <div class="request-form-buttons">
         <button class="soft-button" :disabled="busy" type="button" @click="operation = ''">
           取消操作</button

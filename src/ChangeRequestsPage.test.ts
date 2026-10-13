@@ -206,7 +206,14 @@ it('Changes 讀取所選 PR 的 commit 並顯示 diff 與行號', async () => {
   render(ChangeRequestsPage, { props });
   await screen.findByText('可合併 · aaaaaaaaaaaa');
   await fireEvent.click(screen.getByRole('tab', { name: 'Changes' }));
-  await waitFor(() => expect(screen.getByText('+new')).toBeTruthy());
+  await waitFor(() =>
+    expect(
+      screen.getByText(
+        (_content, element) =>
+          !!element?.classList.contains('diff-text') && element.textContent === '+new',
+      ),
+    ).toBeTruthy(),
+  );
   expect(mocked.changes).toHaveBeenCalledExactlyOnceWith(
     '/a',
     'origin',

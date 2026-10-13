@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { FileDiff, RefreshCw } from 'lucide-vue-next';
 import { api } from './api';
 import { parseRequestPatch } from './changeRequests';
-import type { Forge, RequestFile } from './types';
+import { useDiffHighlight } from './useDiffHighlight';
+import type { Forge, PatchSource, RequestFile } from './types';
 const props = defineProps<{
   path: string;
   remote: string;
@@ -121,6 +122,48 @@ const error = ref('');
 const selected = computed(() => files.value.find((file) => file.path === selectedPath.value));
 const lines = computed(() =>
   selected.value?.patch ? parseRequestPatch(selected.value.patch) : [],
+);
+const sources = shallowRef<PatchSource | null>(null);
+watch(
+  () =>
+    [
+      props.path,
+      props.remote,
+      props.provider,
+      props.number,
+      props.headOid,
+      props.revision,
+      selected.value,
+    ] as const,
+  async ([path, remote, provider, number, headOid, , file], _old, onCleanup) => {
+    let live = true;
+    onCleanup(() => {
+      live = false;
+    });
+    sources.value = null;
+    if (!file?.patch || !file.path.toLowerCase().endsWith('.vue')) return;
+    if (['removed', 'deleted'].includes(file.kind)) {
+      sources.value = { newSource: '' };
+      return;
+    }
+    try {
+      const source = await api.requestSource(path, remote, provider, number, headOid, file.path);
+      if (live) sources.value = source;
+    } catch {
+      // 無法讀取來源時仍保留 diff 與片段高亮。
+    }
+  },
+  { immediate: true },
+);
+const highlightedLines = useDiffHighlight(
+  computed(() =>
+    lines.value.map((line) => ({
+      ...line,
+      text: ['+', '-', 'context'].includes(line.kind) ? line.text.slice(1) : line.text,
+    })),
+  ),
+  computed(() => selected.value?.path ?? ''),
+  sources,
 );
 const kinds: Record<string, string> = {
   added: '新增',
@@ -286,7 +329,10 @@ onUnmounted(() => {
               >
                 <td class="line-number">{{ line.oldLine }}</td>
                 <td class="line-number">{{ line.newLine }}</td>
-                <td class="diff-text">{{ line.text }}</td>
+                <td class="diff-text">
+                  <span v-if="['+', '-', 'context'].includes(line.kind)">{{ line.text[0] }}</span
+                  ><span v-html="highlightedLines[index]"></span>
+                </td>
               </tr>
             </tbody>
           </table>

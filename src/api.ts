@@ -10,6 +10,7 @@ import type {
   RequestAction,
   CommitDetail,
   FilePatch,
+  PatchSource,
   GitRequest,
   Project,
   Snapshot,
@@ -87,6 +88,22 @@ export async function chooseProjects(): Promise<string[]> {
 }
 
 export const api = {
+  requestSource: (
+    path: string,
+    remote: string,
+    provider: Forge,
+    number: number,
+    expectedHead: string,
+    file: string,
+  ) =>
+    call<PatchSource>('read_request_source', {
+      path,
+      remote,
+      provider,
+      number,
+      expectedHead,
+      file,
+    }),
   requestDetail: (path: string, remote: string, provider: Forge, number: number) =>
     call<RequestDetail>('read_request_detail', { path, remote, provider, number }),
   requestChanges: (

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Check, X } from 'lucide-vue-next';
+import MarkdownContent from './MarkdownContent.vue';
+import MarkdownPreview from './MarkdownPreview.vue';
 import type { Commit, CommitOperation, GitRequest, Snapshot } from './types';
 
 const props = defineProps<{
@@ -210,7 +212,7 @@ onUnmounted(() => {
       <h2>{{ title }}</h2>
       <div class="action-target">
         <code>{{ commit.shortId }}</code
-        ><strong>{{ commit.message }}</strong>
+        ><MarkdownContent tag="strong" inline :content="commit.message" />
       </div>
       <p class="subtle">目前位置：{{ currentBranchLabel }} · {{ expectedHead.slice(0, 7) }}</p>
       <p v-if="operation === 'merge'" class="action-target">
@@ -238,6 +240,7 @@ onUnmounted(() => {
         <template v-if="operation === 'addTag'">
           <label for="tag-annotation">Tag 註解（可留空）</label
           ><textarea id="tag-annotation" v-model="annotation" rows="3" :disabled="busy" />
+          <MarkdownPreview :content="annotation" />
         </template>
         <label v-if="operation === 'createBranch'" class="action-checkbox"
           ><input v-model="checkout" type="checkbox" :disabled="busy" />建立後切換至此分支</label

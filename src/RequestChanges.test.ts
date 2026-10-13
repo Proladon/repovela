@@ -4,8 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/vu
 import RequestChanges from './RequestChanges.vue';
 import { parseRequestPatch } from './changeRequests';
 import type { RequestChanges as Changes, RequestFile } from './types';
-const mocked = vi.hoisted(() => ({ changes: vi.fn() }));
-vi.mock('./api', () => ({ api: { requestChanges: mocked.changes } }));
+const mocked = vi.hoisted(() => ({ changes: vi.fn(), source: vi.fn() }));
+vi.mock('./api', () => ({ api: { requestChanges: mocked.changes, requestSource: mocked.source } }));
 const props = {
   path: '/a',
   remote: 'origin',
@@ -23,11 +23,50 @@ const file = (path = 'file.ts'): RequestFile => ({
   patch: '@@ -1 +1 @@\n-old\n+new',
   truncated: false,
 });
+const addedLine = (_content: string, element: Element | null) =>
+  !!element?.classList.contains('diff-text') && element.textContent === '+new';
 beforeEach(() => {
   vi.resetAllMocks();
   mocked.changes.mockResolvedValue({ files: [file()], headOid: props.headOid, nextCursor: null });
 });
 afterEach(cleanup);
+it('Vue 零散片段載入精確 head 的來源，切換檔案後忽略舊來源回應', async () => {
+  let resolve!: (value: { newSource: string }) => void;
+  const source = '<script setup lang="ts">\n\n\n\nconst answer = 42;\n</script>';
+  mocked.changes.mockResolvedValue({
+    files: [
+      { ...file('App.vue'), patch: '@@ -5 +5 @@\n-const answer = 0;\n+const answer = 42;' },
+      file('other.ts'),
+    ],
+    headOid: props.headOid,
+    nextCursor: null,
+  });
+  mocked.source.mockReturnValueOnce(
+    new Promise<{ newSource: string }>((done) => {
+      resolve = done;
+    }),
+  );
+  render(RequestChanges, { props });
+  await waitFor(() =>
+    expect(mocked.source).toHaveBeenCalledExactlyOnceWith(
+      '/a',
+      'origin',
+      'github',
+      1,
+      props.headOid,
+      'App.vue',
+    ),
+  );
+  await fireEvent.click(screen.getByRole('button', { name: /other.ts/ }));
+  resolve({ newSource: source });
+  await waitFor(() => expect(screen.getByText(addedLine)).toBeTruthy());
+  expect(document.querySelector('.addition .diff-text')?.textContent).toBe('+new');
+  mocked.source.mockResolvedValue({ newSource: source });
+  await fireEvent.click(screen.getByRole('button', { name: /App.vue/ }));
+  await waitFor(() =>
+    expect(document.querySelector('.addition .diff-text span[style]')?.textContent).toBe('const'),
+  );
+});
 it('解析多個 hunk、零行數、新增刪除與缺少結尾換行提示', () => {
   const lines = parseRequestPatch(
     '@@ -1,2 +1,2 @@\n context\n-old\n+new\n\\ No newline at end of file\n@@ -0,0 +9 @@\n+added',
@@ -48,14 +87,14 @@ it('分頁失敗保留選取與游標，重試後去重且不重設所選檔案'
       nextCursor: null,
     });
   render(RequestChanges, { props });
-  await screen.findByText('+new');
+  await screen.findByText(addedLine);
   await fireEvent.click(screen.getByRole('button', { name: '載入更多檔案' }));
   await screen.findByRole('alert');
-  expect(screen.getByText('+new')).toBeTruthy();
+  expect(screen.getByText(addedLine)).toBeTruthy();
   await fireEvent.click(screen.getByRole('button', { name: '重試 Changes' }));
   await waitFor(() => expect(document.querySelectorAll('.changes-file')).toHaveLength(2));
   expect(mocked.changes).toHaveBeenLastCalledWith('/a', 'origin', 'github', 1, props.headOid, '2');
-  expect(screen.getByText('+new')).toBeTruthy();
+  expect(screen.getByText(addedLine)).toBeTruthy();
 });
 it('新 PR 載入後忽略舊 diff 回應，二進位與截斷檔案明確顯示', async () => {
   let resolve!: (value: Changes) => void;

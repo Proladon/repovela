@@ -15,6 +15,9 @@ import {
   X,
 } from 'lucide-vue-next';
 import { api, native } from './api';
+import MarkdownContent from './MarkdownContent.vue';
+import MarkdownPreview from './MarkdownPreview.vue';
+import { useDiffHighlight } from './useDiffHighlight';
 import { useContextMenu } from './contextMenu';
 import type { CommitDetail, FilePatch, GitRequest, Snapshot } from './types';
 
@@ -111,6 +114,11 @@ const currentPatch = computed<{ key: string; data?: FilePatch; error?: string }>
   patch.value.key === patchKey.value ? patch.value : { key: patchKey.value },
 );
 const commit = computed(() => current.value.data?.commit);
+const highlightedLines = useDiffHighlight(
+  computed(() => currentPatch.value.data?.lines ?? []),
+  computed(() => file.value?.path ?? ''),
+  computed(() => currentPatch.value.data?.sources),
+);
 const workingAreas = computed(() =>
   (['staged', 'unstaged'] as const).map((area) => ({
     area,
@@ -241,11 +249,8 @@ async function copy() {
                         ><span class="line-sign">{{
                           ['+', '-'].includes(line.kind) ? line.kind : ' '
                         }}</span
-                        ><code>{{ line.text || ' ' }}</code>
-                      </div></template
-                    >
-                  </div></template
-                ></template
+                        ><code v-html="highlightedLines[i]"></code></div
+                    ></template></div></template></template
               ><template v-if="currentPatch.data.truncated"
                 ><div class="notice">
                   {{ 'diff 超過顯示上限（1 MB 或 10,000 行），已截斷顯示。' }}
@@ -271,6 +276,7 @@ async function copy() {
                 placeholder="描述這次變更"
                 :disabled="busy || !native"
               />
+              <MarkdownPreview :content="commitMessage" />
               <div class="commit-form-actions">
                 <small class="subtle">提交只包含已暫存的變更。</small
                 ><button
@@ -373,7 +379,7 @@ async function copy() {
               ><div class="detail-scroll">
                 <div class="commit-summary">
                   <span class="eyebrow">{{ 'COMMIT' }}</span>
-                  <h2>{{ commit.message }}</h2>
+                  <MarkdownContent tag="h2" inline :content="commit.message" />
                   <div class="author-line">
                     <div class="avatar">{{ commit.author.slice(0, 1).toUpperCase() }}</div>
                     <div>
@@ -397,9 +403,10 @@ async function copy() {
                     }}</code>
                   </div>
                   <template v-if="commit.fullMessage.trim() !== commit.message.trim()">
-                    <pre class="commit-body">{{
-                      commit.fullMessage.split('\n').slice(1).join('\n').trim()
-                    }}</pre>
+                    <MarkdownContent
+                      class="commit-body"
+                      :content="commit.fullMessage.split('\n').slice(1).join('\n').trim()"
+                    />
                   </template>
                 </div>
                 <div class="file-section">

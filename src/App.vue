@@ -38,6 +38,7 @@ import {
 import { api, chooseProjects, demo, native, openRepositoryWebsite } from './api';
 import { repositoryWebLinks } from './repositoryUrl';
 import Detail from './Detail.vue';
+import MarkdownContent from './MarkdownContent.vue';
 import WindowTitlebar from './WindowTitlebar.vue';
 import TerminalPanel from './TerminalPanel.vue';
 import GitActions from './GitActions.vue';
@@ -1622,9 +1623,12 @@ onUnmounted(() => {
                                     :style="branchStyle(row)"
                                     >{{ t }}</span
                                   ></template
-                                ><strong :title="row.commit.message">{{
-                                  row.commit.message || '（無 commit 訊息）'
-                                }}</strong>
+                                ><MarkdownContent
+                                  tag="strong"
+                                  inline
+                                  :title="row.commit.message"
+                                  :content="row.commit.message || '（無 commit 訊息）'"
+                                />
                               </div>
                               <div class="commit-caption">
                                 <code>{{ row.commit.shortId }}</code>

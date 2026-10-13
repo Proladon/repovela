@@ -3,6 +3,23 @@ use tauri::Manager;
 mod terminal;
 
 #[tauri::command]
+async fn read_request_source(
+    path: String,
+    remote: String,
+    provider: repovela_core::Forge,
+    number: u64,
+    expected_head: String,
+    file: String,
+) -> Result<repovela_core::PatchSource, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        repovela_core::read_request_source(&path, &remote, provider, number, &expected_head, &file)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 async fn read_request_detail(
     path: String,
     remote: String,
@@ -180,6 +197,7 @@ pub fn run() {
             read_change_requests,
             read_request_detail,
             read_request_changes,
+            read_request_source,
             operate_request,
             read_commit,
             read_patch,

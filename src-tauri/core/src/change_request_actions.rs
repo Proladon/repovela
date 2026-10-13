@@ -1,5 +1,6 @@
 use super::change_requests::{cli, item, target, ChangeRequest, Forge, Target};
 use anyhow::{bail, Context, Result};
+use base64::Engine;
 use git2::Repository;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -317,6 +318,70 @@ pub fn read_request_changes(
 ) -> Result<RequestChanges> {
     read_changes_with(path, remote, forge, number, expected_head, cursor, cli)
 }
+
+pub fn read_request_source(
+    path: &str,
+    remote: &str,
+    forge: Forge,
+    number: u64,
+    expected_head: &str,
+    file: &str,
+) -> Result<super::PatchSource> {
+    read_source_with(path, remote, forge, number, expected_head, file, cli)
+}
+
+fn read_source_with(
+    path: &str,
+    remote: &str,
+    forge: Forge,
+    number: u64,
+    expected_head: &str,
+    file: &str,
+    mut runner: impl FnMut(&str, &[String], &Path, &str) -> Result<Value>,
+) -> Result<super::PatchSource> {
+    super::validate_file(file)?;
+    if !file.to_lowercase().ends_with(".vue") {
+        bail!("語法來源僅支援 Vue 檔案。");
+    }
+    let repo = Repository::discover(path).context("找不到 Git 儲存庫。")?;
+    let client = Client::new(&repo, remote, forge)?;
+    let metadata = client.metadata(number, &mut runner)?;
+    let oid = head(&metadata, forge)?;
+    if oid != expected_head {
+        bail!("來源分支已有新提交，請重新整理 PR／MR。");
+    }
+    let encoded = url::form_urlencoded::byte_serialize(file.as_bytes())
+        .collect::<String>()
+        .replace('+', "%20");
+    let endpoint = if client.github() {
+        let project = metadata["head"]["repo"]["full_name"]
+            .as_str()
+            .unwrap_or(&client.target.project);
+        let source = target(&format!("https://{}/{project}", client.target.host), forge)?;
+        format!("repos/{}/contents/{encoded}?ref={oid}", source.project)
+    } else {
+        let project = metadata["source_project_id"]
+            .as_u64()
+            .map(|id| format!("projects/{id}"))
+            .unwrap_or_else(|| client.project());
+        format!("{project}/repository/files/{encoded}?ref={oid}")
+    };
+    let data = client.call(&endpoint, "GET", &[], &mut runner)?;
+    let content = data["content"].as_str().context("平台未提供檔案內容。")?;
+    if data["encoding"].as_str() != Some("base64") || content.len() > PATCH_LIMIT * 2 {
+        bail!("檔案編碼或大小不支援語法來源。");
+    }
+    let encoded: String = content
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
+    let bytes = base64::engine::general_purpose::STANDARD.decode(encoded)?;
+    let source = super::syntax_source(&bytes).context("檔案過大或不是 UTF-8 文字。");
+    Ok(super::PatchSource {
+        old_source: None,
+        new_source: Some(source?),
+    })
+}
 fn read_changes_with(
     path: &str,
     remote: &str,
@@ -633,6 +698,59 @@ mod tests {
             json!({"number":7,"title":"PR title","body":"description","state":"open","draft":false,"merged":false,"node_id":"PR_id","user":{"login":"dev"},"head":{"sha":"a".repeat(40),"ref":"feature"},"base":{"ref":"main"},"labels":[{"name":"bug"}],"html_url":"https://code.example.com/group/repo/pull/7"})
         } else {
             json!({"iid":7,"title":"MR title","description":"description","state":"opened","draft":false,"sha":"a".repeat(40),"source_branch":"feature","target_branch":"main","author":{"username":"dev"},"labels":["bug"]})
+        }
+    }
+    #[test]
+    fn vue_source_reads_exact_head_from_forks_and_encodes_paths() {
+        let dir = fixture();
+        for forge in [Forge::Github, Forge::Gitlab] {
+            let mut calls = 0;
+            let source = read_source_with(
+                dir.path().to_str().unwrap(), "origin", forge, 7, &"a".repeat(40), "src/元 件+.vue",
+                |_, args, _, _| {
+                    calls += 1;
+                    assert_eq!(args[5], "GET");
+                    if calls == 1 {
+                        let mut meta = metadata(forge);
+                        meta["head"]["repo"] = json!({"full_name":"contributor/fork"});
+                        meta["source_project_id"] = json!(42);
+                        return Ok(meta);
+                    }
+                    let project = if matches!(forge, Forge::Github) { "repos/contributor/fork/contents" } else { "projects/42/repository/files" };
+                    assert_eq!(args[1], format!("{project}/src%2F%E5%85%83%20%E4%BB%B6%2B.vue?ref={}", "a".repeat(40)));
+                    Ok(json!({"encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode("<script setup lang=\"ts\">\nconst answer = 42;\n</script>")}))
+                },
+            ).unwrap();
+            assert!(source.new_source.unwrap().contains("const answer = 42"));
+            assert_eq!(calls, 2);
+        }
+    }
+
+    #[test]
+    fn vue_source_rejects_stale_heads_and_oversized_or_invalid_content() {
+        let dir = fixture();
+        let mut calls = 0;
+        assert!(read_source_with(
+            dir.path().to_str().unwrap(),
+            "origin",
+            Forge::Github,
+            7,
+            &"b".repeat(40),
+            "App.vue",
+            |_, _, _, _| {
+                calls += 1;
+                Ok(metadata(Forge::Github))
+            }
+        )
+        .is_err());
+        assert_eq!(calls, 1);
+        for content in [vec![0_u8], vec![b'x'; PATCH_LIMIT + 1], vec![255]] {
+            assert!(read_source_with(dir.path().to_str().unwrap(), "origin", Forge::Github, 7, &"a".repeat(40), "App.vue",
+                |_, args, _, _| {
+                    if args[1].contains("/contents/") {
+                        Ok(json!({"encoding":"base64","content":base64::engine::general_purpose::STANDARD.encode(&content)}))
+                    } else { Ok(metadata(Forge::Github)) }
+                }).is_err());
         }
     }
     fn action(operation: &str) -> RequestAction {
