@@ -2,6 +2,7 @@
 import { Download, RefreshCw } from 'lucide-vue-next';
 import { computed } from 'vue';
 import { native } from './api';
+import MarkdownContent from './MarkdownContent.vue';
 import type { AppUpdate } from './appUpdate';
 
 const props = defineProps<{ updater: AppUpdate }>();
@@ -68,7 +69,7 @@ function formatBytes(bytes: number) {
     </div>
     <details v-if="updater.state.notes" class="update-notes">
       <summary>版本說明 · v{{ updater.state.latestVersion }}</summary>
-      <pre>{{ updater.state.notes }}</pre>
+      <MarkdownContent :content="updater.state.notes" />
     </details>
     <div v-if="updater.state.phase === 'available'" class="update-actions">
       <button class="soft-button" @click="updater.downloadUpdate">

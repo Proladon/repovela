@@ -17,7 +17,8 @@ export const requestStateLabel = {
 export function parseRequestPatch(patch: string): PatchLine[] {
   let oldLine: number | null = null;
   let newLine: number | null = null;
-  return patch.split('\n').map((text): PatchLine => {
+  return patch.split('\n').map((raw): PatchLine => {
+    const text = raw.replace(/\r$/, '');
     const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(text);
     if (hunk) {
       oldLine = Number(hunk[1]);

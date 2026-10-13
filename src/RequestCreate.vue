@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import type { RequestAction } from './types';
+import MarkdownPreview from './MarkdownPreview.vue';
 const props = defineProps<{ busy: boolean; run: (request: RequestAction) => Promise<boolean> }>();
 const emit = defineEmits<{ cancel: [] }>();
 const title = ref('');
@@ -62,6 +63,7 @@ async function submit() {
         rows="6"
       />
     </label>
+    <MarkdownPreview :content="body" />
     <label class="create-draft"
       ><input v-model="draft" type="checkbox" :disabled="busy" />建立為草稿</label
     >

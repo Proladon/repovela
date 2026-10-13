@@ -68,6 +68,129 @@ code,
 pre {
   font-family: var(--code-font-family, 'Cascadia Code', Consolas, monospace);
 }
+.markdown-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.markdown-content:not(.markdown-inline) {
+  white-space: normal;
+}
+.markdown-content > :first-child {
+  margin-top: 0;
+}
+.markdown-content > :last-child {
+  margin-bottom: 0;
+}
+.markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  line-height: 1.4;
+  margin: 1.2em 0 0.6em;
+}
+.markdown-content h1 {
+  font-size: 1.7em;
+}
+.markdown-content h2 {
+  font-size: 1.5em;
+}
+.markdown-content h3 {
+  font-size: 1.25em;
+}
+.markdown-content :is(p, ul, ol, blockquote, pre, table) {
+  margin: 0.8em 0;
+}
+.markdown-content :is(ul, ol) {
+  padding-left: 1.8em;
+}
+.markdown-content li > p {
+  margin: 0.3em 0;
+}
+.markdown-content blockquote {
+  margin-left: 0;
+  padding-left: 1em;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+}
+.markdown-content code {
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  background: #ffffff0a;
+  font-size: 0.95em;
+}
+.markdown-content pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #0d1117;
+  white-space: pre;
+  line-height: 1.6;
+  tab-size: 4;
+}
+.markdown-content pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+.markdown-content table {
+  display: block;
+  max-width: 100%;
+  overflow: auto;
+  border-collapse: collapse;
+}
+.markdown-content :is(th, td) {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+}
+.markdown-content th {
+  background: #ffffff08;
+}
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+.markdown-content hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 1em 0;
+}
+.markdown-content .task-list-item {
+  list-style: none;
+}
+.markdown-content .task-list-item-checkbox {
+  width: auto;
+  margin: 0 0.5em 0 -1.4em;
+  accent-color: var(--accent);
+}
+.markdown-content .footnotes {
+  font-size: 0.9em;
+  color: var(--muted);
+}
+.markdown-inline {
+  line-height: inherit;
+}
+.markdown-preview {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: inherit;
+}
+.markdown-preview summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.markdown-preview[open] > .markdown-content {
+  margin-top: 10px;
+  max-height: 320px;
+  overflow: auto;
+}
+.markdown-link-error {
+  display: block;
+  color: #f29498;
+  font-size: 12px;
+}
 .app-shell {
   font-family: var(--ui-font-family, inherit);
   font-size: calc(13px * var(--font-scale, 1));
@@ -640,7 +763,7 @@ pre {
   display: grid;
   grid-template-columns:
     minmax(0, 1fr)
-    clamp(min(280px, 50%), var(--detail-width, 46.73%), max(50%, calc(100% - 320px)));
+    clamp(min(280px, 50%), var(--detail-width, 46.73%), max(min(280px, 50%), calc(100% - 320px)));
   flex: 1;
   min-height: 0;
 }
@@ -988,7 +1111,7 @@ pre {
   overflow: hidden;
   height: calc(18px * var(--font-scale, 1));
 }
-.commit-subject strong {
+.commit-subject > strong {
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 450;
   overflow: hidden;
@@ -1155,7 +1278,6 @@ pre {
   font-size: calc(11px * var(--font-scale, 1));
   color: #9ba4b6;
   line-height: 1.8;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   margin: 23px 0 0;
 }
@@ -1677,13 +1799,11 @@ pre {
 .update-notes summary {
   cursor: pointer;
 }
-.update-notes pre {
-  white-space: pre-wrap;
+.update-notes > .markdown-content {
   overflow-wrap: anywhere;
   max-height: 180px;
   overflow: auto;
   color: var(--muted);
-  font: inherit;
   line-height: 1.7;
 }
 .update-actions {
@@ -1885,7 +2005,7 @@ pre {
   .repo-title > div > span {
     max-width: 290px;
   }
-  .commit-subject strong {
+  .commit-subject > strong {
     max-width: 240px;
   }
   .status-bar {

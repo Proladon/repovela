@@ -2,8 +2,8 @@
 mod change_request_actions;
 mod change_requests;
 pub use change_request_actions::{
-    operate_request, read_request_changes, read_request_detail, RequestAction, RequestChanges,
-    RequestDetail,
+    operate_request, read_request_changes, read_request_detail, read_request_source, RequestAction,
+    RequestChanges, RequestDetail,
 };
 pub mod git;
 pub mod graph;
@@ -179,10 +179,49 @@ pub struct PatchLine {
 }
 
 #[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FilePatch {
     pub lines: Vec<PatchLine>,
     pub binary: bool,
     pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sources: Option<PatchSource>,
+}
+
+#[derive(Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchSource {
+    pub old_source: Option<String>,
+    pub new_source: Option<String>,
+}
+
+fn syntax_source(bytes: &[u8]) -> Option<String> {
+    if bytes.len() > PATCH_LIMIT || bytes.contains(&0) {
+        return None;
+    }
+    std::str::from_utf8(bytes).ok().map(str::to_owned)
+}
+
+fn blob_source(repo: &Repository, oid: Oid) -> Option<String> {
+    if oid.is_zero() {
+        return None;
+    }
+    syntax_source(repo.find_blob(oid).ok()?.content())
+}
+
+fn worktree_source(repo: &Repository, file: &Path) -> Option<String> {
+    let root = repo.workdir()?.canonicalize().ok()?;
+    let full = root.join(file).canonicalize().ok()?;
+    if !full.starts_with(&root) || !full.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    std::fs::File::open(full)
+        .ok()?
+        .take((PATCH_LIMIT + 1) as u64)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    syntax_source(&bytes)
 }
 
 pub fn open_project(path: &str) -> Result<Project> {
@@ -481,6 +520,29 @@ pub fn read_patch(path: &str, oid: Option<&str>, file: &str, area: &str) -> Resu
     if !result.truncated {
         printed?;
     }
+    if file.to_lowercase().ends_with(".vue") && !result.binary {
+        if let Some(delta) = diff.deltas().next() {
+            let old_source = if delta.status() == git2::Delta::Added {
+                Some(String::new())
+            } else {
+                blob_source(&repo, delta.old_file().id())
+            };
+            let new_source = if delta.status() == git2::Delta::Deleted {
+                Some(String::new())
+            } else if oid.is_none() && area == "unstaged" {
+                delta
+                    .new_file()
+                    .path()
+                    .and_then(|file| worktree_source(&repo, file))
+            } else {
+                blob_source(&repo, delta.new_file().id())
+            };
+            result.sources = Some(PatchSource {
+                old_source,
+                new_source,
+            });
+        }
+    }
     Ok(result)
 }
 
@@ -508,6 +570,7 @@ fn untracked_patch(repo: &Repository, file: &str) -> Result<FilePatch> {
             binary: true,
             truncated,
             lines: vec![],
+            sources: None,
         });
     }
     let mut lines = Vec::new();
@@ -527,5 +590,9 @@ fn untracked_patch(repo: &Repository, file: &str) -> Result<FilePatch> {
         lines,
         binary: false,
         truncated,
+        sources: file.to_lowercase().ends_with(".vue").then(|| PatchSource {
+            old_source: Some(String::new()),
+            new_source: syntax_source(&bytes),
+        }),
     })
 }

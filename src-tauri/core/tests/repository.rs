@@ -17,6 +17,56 @@ fn commit(repo: &Repository, message: &str) -> git2::Oid {
 }
 
 #[test]
+fn vue_patch_sources_follow_commit_index_and_worktree_versions() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repository::init(dir.path()).unwrap();
+    let path = dir.path().to_str().unwrap();
+    let original = "<script setup lang=\"ts\">\n\n\n\nconst value = 0;\n</script>\n";
+    let staged = original.replace("value = 0", "value = 1");
+    let working = original.replace("value = 0", "value = 2");
+    std::fs::write(dir.path().join("App.vue"), original).unwrap();
+    commit(&repo, "original");
+    std::fs::write(dir.path().join("App.vue"), &staged).unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("App.vue")).unwrap();
+    index.write().unwrap();
+    std::fs::write(dir.path().join("App.vue"), &working).unwrap();
+    let source = read_patch(path, None, "App.vue", "staged")
+        .unwrap()
+        .sources
+        .unwrap();
+    assert_eq!(source.old_source.as_deref(), Some(original));
+    assert_eq!(source.new_source.as_deref(), Some(staged.as_str()));
+    let source = read_patch(path, None, "App.vue", "unstaged")
+        .unwrap()
+        .sources
+        .unwrap();
+    assert_eq!(source.old_source.as_deref(), Some(staged.as_str()));
+    assert_eq!(source.new_source.as_deref(), Some(working.as_str()));
+    let oid = commit(&repo, "changed");
+    let source = read_patch(path, Some(&oid.to_string()), "App.vue", "commit")
+        .unwrap()
+        .sources
+        .unwrap();
+    assert_eq!(source.old_source.as_deref(), Some(original));
+    assert_eq!(source.new_source.as_deref(), Some(working.as_str()));
+    std::fs::write(dir.path().join("New.vue"), original).unwrap();
+    let source = read_patch(path, None, "New.vue", "unstaged")
+        .unwrap()
+        .sources
+        .unwrap();
+    assert_eq!(source.old_source.as_deref(), Some(""));
+    assert_eq!(source.new_source.as_deref(), Some(original));
+    std::fs::remove_file(dir.path().join("App.vue")).unwrap();
+    let source = read_patch(path, None, "App.vue", "unstaged")
+        .unwrap()
+        .sources
+        .unwrap();
+    assert_eq!(source.new_source.as_deref(), Some(""));
+    assert_eq!(source.old_source.as_deref(), Some(working.as_str()));
+}
+
+#[test]
 fn reads_remote_urls_even_when_remote_branches_are_hidden_without_changing_config() {
     let dir = tempfile::tempdir().unwrap();
     let repo = Repository::init(dir.path()).unwrap();

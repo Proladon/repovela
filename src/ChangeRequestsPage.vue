@@ -7,6 +7,7 @@ import { repositoryWebLinks } from './repositoryUrl';
 import RequestActions from './RequestActions.vue';
 import RequestChanges from './RequestChanges.vue';
 import RequestCreate from './RequestCreate.vue';
+import MarkdownContent from './MarkdownContent.vue';
 import type {
   ChangeRequest,
   Forge,
@@ -454,8 +455,8 @@ onUnmounted(() => {
               creating = false;
             "
           >
-            <span class="request-item-title">{{ item.title }}</span
-            ><span class="request-item-meta"
+            <MarkdownContent class="request-item-title" inline :content="item.title" />
+            <span class="request-item-meta"
               ><span>{{ prefix }}{{ item.number }} · {{ item.author || '未知作者' }}</span
               ><span :class="`request-state ${item.state}`">{{
                 item.draft ? '草稿' : requestStateLabel[item.state]
@@ -517,7 +518,7 @@ onUnmounted(() => {
               <ExternalLink :size="14" />在網站開啟 {{ kind }}
             </button>
           </div>
-          <h3>{{ selected.title }}</h3>
+          <MarkdownContent tag="h3" inline :content="selected.title" />
           <div class="request-branches">
             <code>{{ selected.sourceBranch }}</code
             ><span>→</span><code>{{ selected.targetBranch }}</code>
@@ -569,7 +570,7 @@ onUnmounted(() => {
           <div v-if="selected.labels.length" class="request-labels">
             <span v-for="label in selected.labels" :key="label">{{ label }}</span>
           </div>
-          <div class="request-body">{{ selected.body || '沒有提供說明。' }}</div>
+          <MarkdownContent class="request-body" :content="selected.body || '沒有提供說明。'" />
           <RequestActions
             v-if="detail"
             :key="`${remote}:${provider}:${detail.request.number}`"
@@ -838,7 +839,6 @@ select:focus-visible {
   overflow-wrap: anywhere;
 }
 .request-body {
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
   line-height: 1.8;
   margin-top: 18px;

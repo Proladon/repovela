@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import { Archive, X } from 'lucide-vue-next';
+import MarkdownContent from './MarkdownContent.vue';
+import MarkdownPreview from './MarkdownPreview.vue';
 import type { GitRequest, Snapshot, StashEntry } from './types';
 
 const props = defineProps<{
@@ -184,7 +186,8 @@ onUnmounted(() => previousFocus?.focus({ preventScroll: true }));
       <template v-if="dropTarget">
         <h3>刪除 Stash</h3>
         <p>
-          <code>{{ stashRef(dropTarget.index) }}</code> · {{ dropTarget.message }}
+          <code>{{ stashRef(dropTarget.index) }}</code> ·
+          <MarkdownContent inline :content="dropTarget.message" />
         </p>
         <p>刪除後將無法從 Stash 清單還原這份變更。</p>
         <div class="stash-actions">
@@ -206,6 +209,7 @@ onUnmounted(() => previousFocus?.focus({ preventScroll: true }));
             placeholder="例如：切換分支前的工作"
             :disabled="busy"
           />
+          <MarkdownPreview :content="message" />
           <label class="stash-checkbox"
             ><input
               v-model="includeUntracked"
@@ -239,7 +243,7 @@ onUnmounted(() => previousFocus?.focus({ preventScroll: true }));
             @click="selectedKey = key(stash)"
           >
             <code>{{ stashRef(stash.index) }}</code>
-            <strong>{{ stash.message }}</strong>
+            <MarkdownContent tag="strong" inline :content="stash.message" />
             <small>{{ new Date(stash.date).toLocaleString('zh-TW') }}</small>
           </button>
           <p v-if="!stashes.length" class="subtle">目前沒有 Stash。</p>

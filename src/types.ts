@@ -201,4 +201,9 @@ export interface FilePatch {
   lines: PatchLine[];
   binary: boolean;
   truncated: boolean;
+  sources?: PatchSource | null;
+}
+export interface PatchSource {
+  oldSource?: string | null;
+  newSource?: string | null;
 }
