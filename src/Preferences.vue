@@ -2,14 +2,15 @@
 import { RotateCcw, X } from 'lucide-vue-next';
 import { computed, onMounted, ref } from 'vue';
 import { listSystemFonts, native } from './api';
-import type { Preferences } from './preferences';
+import { toastPositions, type Preferences } from './preferences';
+import type { ToastDismissal } from './toasts';
 import UpdateSettings from './UpdateSettings.vue';
 import type { AppUpdate } from './appUpdate';
 
 defineProps<{ updater: AppUpdate }>();
 
 const model = defineModel<Preferences>({ required: true });
-const emit = defineEmits<{ close: []; reset: [] }>();
+const emit = defineEmits<{ close: []; reset: []; previewToast: [dismissal: ToastDismissal] }>();
 const dialog = ref<HTMLElement | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
 const fonts = ref<string[]>(
@@ -102,6 +103,58 @@ onMounted(async () => {
       <div class="preferences-scroll">
         <div class="preferences-content">
           <UpdateSettings :updater="updater" />
+          <section class="preferences-section" aria-labelledby="preferences-toast">
+            <h2 id="preferences-toast">通知訊息</h2>
+            <label class="preference-row">
+              <span
+                ><strong>Toast 顯示位置</strong><small>所有通知共用，變更立即生效。</small></span
+              >
+              <select
+                aria-label="Toast 顯示位置"
+                :value="model.toastPosition"
+                @change="
+                  update({
+                    toastPosition: ($event.target as HTMLSelectElement)
+                      .value as Preferences['toastPosition'],
+                  })
+                "
+              >
+                <option
+                  v-for="(label, position) in toastPositions"
+                  :key="position"
+                  :value="position"
+                >
+                  {{ label }}
+                </option>
+              </select>
+            </label>
+            <label class="preference-row">
+              <span
+                ><strong>自動關閉倒數</strong
+                ><small>成功與一般提示自動關閉；錯誤需手動關閉。</small></span
+              >
+              <select
+                aria-label="Toast 自動關閉秒數"
+                :value="model.toastDuration"
+                @change="
+                  update({ toastDuration: Number(($event.target as HTMLSelectElement).value) })
+                "
+              >
+                <option v-for="seconds in [3, 5, 8, 10, 15]" :key="seconds" :value="seconds">
+                  {{ seconds }} 秒
+                </option>
+              </select>
+            </label>
+            <p class="preferences-note">滑鼠停留或鍵盤聚焦於通知時暫停倒數。</p>
+            <div class="toast-preview-buttons">
+              <button class="soft-button" @click="emit('previewToast', 'auto')">
+                預覽自動關閉
+              </button>
+              <button class="soft-button" @click="emit('previewToast', 'manual')">
+                預覽手動關閉
+              </button>
+            </div>
+          </section>
           <section class="preferences-section" aria-labelledby="preferences-typography">
             <h2 id="preferences-typography">字體</h2>
             <p v-if="fontListMessage" class="preferences-note" role="status">

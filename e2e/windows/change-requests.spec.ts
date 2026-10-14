@@ -52,6 +52,21 @@ test('PR／MR：原生 IPC、CLI、遠端、分頁、失敗重試與專案隔離
     labels: ['feature'],
   });
   const fixtures: Record<string, unknown> = {
+    'github-branches.json': {
+      data: {
+        repository: {
+          defaultBranchRef: { name: 'main' },
+          refs: {
+            nodes: [{ name: 'main' }, { name: 'feature/create' }],
+            pageInfo: { hasNextPage: false, endCursor: null },
+          },
+        },
+      },
+    },
+    'gitlab-branches.json': [
+      { name: 'develop', default: true },
+      { name: 'feature/mr', default: false },
+    ],
     'github-meta.json': {
       number: 0,
       title: '原生 PR 0',
@@ -123,8 +138,10 @@ class FixtureCli {
     int number = 0;
     if (!Int32.TryParse(parts[parts.Length - 1], out number) && parts.Length > 1) Int32.TryParse(parts[parts.Length - 2], out number);
     string prefix = gitlab ? "gitlab" : "github";
+    if (arguments.Contains("refs/heads/") || endpoint.Contains("/repository/branches?")) { Console.Write(File.ReadAllText(Path.Combine(root, prefix + "-branches.json"), Encoding.UTF8)); return 0; }
     string stateFile = Path.Combine(root, prefix + "-" + number + "-state.txt");
     if (method != "GET" && endpoint != "graphql") {
+      if (arguments.Contains("title=建立失敗測試")) { Console.Error.WriteLine("fixture: target_branch does not exist"); return 1; }
       if (endpoint.EndsWith("/merge")) { File.WriteAllText(stateFile, "merged"); Console.Write(gitlab ? "{\\"state\\":\\"merged\\"}" : "{\\"merged\\":true}"); return 0; }
       if (number == 0) { File.WriteAllText(Path.Combine(root, "created.txt"), "yes"); Console.Write(gitlab ? "{\\"iid\\":33}" : "{\\"number\\":33}"); return 0; }
       if (arguments.Contains("state=closed") || arguments.Contains("state_event=close")) File.WriteAllText(stateFile, "closed");
@@ -193,18 +210,35 @@ class FixtureCli {
       .locator('.toolbar')
       .getByRole('button', { name: '建立 PR／MR', exact: true })
       .click();
-    await modal.getByRole('textbox', { name: 'PR／MR 標題' }).fill('原生建立 PR');
-    await modal.getByRole('textbox', { name: 'PR／MR 來源分支' }).fill('feature/create');
+    await modal.getByRole('textbox', { name: 'PR／MR 標題' }).fill('建立失敗測試');
+    await expect(modal.getByRole('combobox', { name: 'PR／MR 來源分支' })).toBeEnabled();
+    await expect(modal.getByRole('combobox', { name: 'PR／MR 目標分支' })).toHaveValue('main');
+    await modal.getByRole('combobox', { name: 'PR／MR 來源分支' }).selectOption('feature/create');
     await modal.getByRole('textbox', { name: 'PR／MR 說明' }).fill('建立說明');
+    await modal.getByRole('button', { name: '確認建立', exact: true }).click();
+    await expect(page.locator('.toast')).toContainText('target_branch does not exist');
+    await expect(page.locator('.toast')).toContainText('重新整理核對遠端結果');
+    await expect(modal.getByRole('alert')).toHaveCount(0);
+    await expect(modal.getByRole('textbox', { name: 'PR／MR 標題' })).toHaveValue('建立失敗測試');
+    await expect(modal.getByRole('textbox', { name: 'PR／MR 說明' })).toHaveValue('建立說明');
+    await expect(modal.getByRole('button', { name: '確認建立', exact: true })).toBeEnabled();
+    await page.screenshot({ path: info.outputPath('request-error-toast.png') });
+    await page.getByRole('button', { name: '關閉提示' }).click();
+    await expect(page.locator('.toast')).toHaveCount(0);
+    await modal.getByRole('textbox', { name: 'PR／MR 標題' }).fill('原生建立 PR');
     await modal.getByRole('button', { name: '確認建立', exact: true }).click();
     await expect(modal.getByText('已建立 #33。')).toBeVisible();
     await expect(modal.getByRole('heading', { name: '原生 PR 33', exact: true })).toBeVisible();
     await modal.getByRole('combobox', { name: 'PR／MR 狀態' }).selectOption('merged');
     await expect(modal.getByRole('heading', { name: '已合併 PR' })).toBeVisible();
     await modal.getByRole('combobox', { name: 'PR／MR 狀態' }).selectOption('closed');
-    await expect(modal.getByRole('alert')).toContainText('gh auth login --hostname github.com');
+    await expect(page.locator('.toast')).toContainText('gh auth login --hostname github.com');
+    await expect(modal.getByRole('alert')).toHaveCount(0);
+    await page.getByRole('button', { name: '關閉提示' }).click();
+    await expect(page.locator('.toast')).toHaveCount(0);
     await modal.getByRole('button', { name: '重試' }).click();
-    await expect(modal.getByRole('alert')).toContainText('fixture: please log in');
+    await expect(page.locator('.toast')).toContainText('fixture: please log in');
+    await page.getByRole('button', { name: '關閉提示' }).click();
     await modal.getByRole('combobox', { name: 'PR／MR 狀態' }).selectOption('open');
     await page.locator('.toolbar').getByRole('button', { name: 'PR／MR 來源設定' }).click();
     await page
@@ -245,6 +279,14 @@ class FixtureCli {
     await expect(modal.locator('.changes-diff')).toContainText('+new');
     await assertLayout(page, ['.toolbar', '.requests-page', '.request-browser', '.request-detail']);
     await page.screenshot({ path: info.outputPath('change-requests.png') });
+    await page
+      .locator('.toolbar')
+      .getByRole('button', { name: '建立 PR／MR', exact: true })
+      .click();
+    await expect(modal.getByRole('combobox', { name: 'PR／MR 目標分支' })).toHaveValue('develop');
+    await modal.getByRole('combobox', { name: 'PR／MR 來源分支' }).selectOption('feature/mr');
+    await page.screenshot({ path: info.outputPath('request-branch-selects.png') });
+    await modal.getByRole('button', { name: '取消建立' }).click();
     await modal.getByRole('tab', { name: '概覽' }).click();
     await modal.getByRole('button', { name: '合併', exact: true }).click();
     await modal.getByRole('combobox', { name: 'PR／MR 合併方式' }).selectOption('squash');

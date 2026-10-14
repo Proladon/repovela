@@ -11,6 +11,19 @@ import { api, chooseProjects, listSystemFonts, openRepositoryWebsite } from './a
 
 beforeEach(() => vi.resetAllMocks());
 
+it('建立選單從指定專案、遠端與平台讀取分支', async () => {
+  core.invoke.mockResolvedValue({ branches: ['develop', 'feature/new'], defaultBranch: 'develop' });
+  await expect(api.requestBranches('/a', 'upstream', 'gitlab')).resolves.toEqual({
+    branches: ['develop', 'feature/new'],
+    defaultBranch: 'develop',
+  });
+  expect(core.invoke).toHaveBeenCalledExactlyOnceWith('read_request_branches', {
+    path: '/a',
+    remote: 'upstream',
+    provider: 'gitlab',
+  });
+});
+
 it('PR／MR 讀取明確指定專案、遠端、平台、狀態與游標', async () => {
   core.invoke.mockResolvedValue({ items: [], nextCursor: null });
   await api.changeRequests('/project', 'upstream', 'gitlab', 'merged', '2');

@@ -31,6 +31,10 @@ export interface RequestDetail {
   headOid: string;
   mergeStatus: string;
 }
+export interface RequestBranches {
+  branches: string[];
+  defaultBranch: string | null;
+}
 export interface RequestFile {
   path: string;
   previousPath: string | null;

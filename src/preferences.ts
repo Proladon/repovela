@@ -1,3 +1,13 @@
+export const toastPositions = {
+  'top-left': '左上',
+  'top-center': '上方置中',
+  'top-right': '右上',
+  'bottom-left': '左下',
+  'bottom-center': '下方置中',
+  'bottom-right': '右下',
+} as const;
+export type ToastPosition = keyof typeof toastPositions;
+
 export interface Preferences {
   version: 1;
   followBranchColor: boolean;
@@ -16,6 +26,8 @@ export interface Preferences {
   sidebarWidth: number;
   requestListWidth: number | null;
   changesListWidth: number | null;
+  toastPosition: ToastPosition;
+  toastDuration: number;
 }
 
 export const PREFERENCES_KEY = 'repovela-preferences-v1';
@@ -37,6 +49,8 @@ export const defaultPreferences: Preferences = {
   sidebarWidth: 216,
   requestListWidth: null,
   changesListWidth: null,
+  toastPosition: 'bottom-right',
+  toastDuration: 5,
 };
 
 export function restorePreferences(raw: string | null): Preferences {
@@ -75,6 +89,10 @@ export function restorePreferences(raw: string | null): Preferences {
     if (data.density === 'compact' || data.density === 'comfortable') result.density = data.density;
     if (data.dateFormat === 'short' || data.dateFormat === 'full')
       result.dateFormat = data.dateFormat;
+    if (typeof data.toastPosition === 'string' && Object.hasOwn(toastPositions, data.toastPosition))
+      result.toastPosition = data.toastPosition as ToastPosition;
+    if ([3, 5, 8, 10, 15].includes(data.toastDuration as number))
+      result.toastDuration = data.toastDuration as number;
     if ([500, 1000, 2000, 5000].includes(data.defaultCommitLimit as number))
       result.defaultCommitLimit = data.defaultCommitLimit as number;
     return result;

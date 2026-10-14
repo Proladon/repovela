@@ -5,7 +5,12 @@ import MarkdownContent from './MarkdownContent.vue';
 import RequestCreate from './RequestCreate.vue';
 import * as markdown from './markdown';
 const website = vi.hoisted(() => vi.fn());
-vi.mock('./api', () => ({ openRepositoryWebsite: website }));
+vi.mock('./api', () => ({
+  openRepositoryWebsite: website,
+  api: {
+    requestBranches: async () => ({ branches: ['main', 'feature/new'], defaultBranch: 'main' }),
+  },
+}));
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -44,9 +49,11 @@ it('Markdown 連結使用網站 opener，失敗時顯示錯誤', async () => {
 
 it('PR／MR 說明預覽渲染 Markdown，送出時仍保留原始語法', async () => {
   const run = vi.fn().mockResolvedValue(true);
-  render(RequestCreate, { props: { busy: false, run } });
+  render(RequestCreate, {
+    props: { path: '/a', remote: 'origin', provider: 'github', busy: false, run },
+  });
   await fireEvent.update(screen.getByRole('textbox', { name: 'PR／MR 標題' }), '新增功能');
-  await fireEvent.update(screen.getByRole('textbox', { name: 'PR／MR 來源分支' }), 'feature/new');
+  await fireEvent.update(screen.getByRole('combobox', { name: 'PR／MR 來源分支' }), 'feature/new');
   await fireEvent.update(
     screen.getByRole('textbox', { name: 'PR／MR 說明' }),
     '**重點**\n\n- [x] 完成',

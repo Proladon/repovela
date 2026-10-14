@@ -22,6 +22,8 @@ const mocked = vi.hoisted(() => ({
   website: vi.fn(),
   requests: vi.fn(),
   requestDetail: vi.fn(),
+  requestChanges: vi.fn(),
+  requestBranches: vi.fn(),
   requestAction: vi.fn(),
 }));
 vi.mock('./api', () => ({
@@ -39,6 +41,8 @@ vi.mock('./api', () => ({
     trustProject: mocked.trust,
     changeRequests: mocked.requests,
     requestDetail: mocked.requestDetail,
+    requestChanges: mocked.requestChanges,
+    requestBranches: mocked.requestBranches,
     requestAction: mocked.requestAction,
   },
 }));
@@ -126,6 +130,10 @@ beforeEach(() => {
   mocked.fonts.mockResolvedValue(['Arial', '自訂安裝字體']);
   mocked.website.mockResolvedValue(undefined);
   mocked.requests.mockResolvedValue({ items: [], nextCursor: null });
+  mocked.requestBranches.mockResolvedValue({
+    branches: ['main', 'feature'],
+    defaultBranch: 'main',
+  });
   mocked.operate.mockResolvedValue('ok');
   mocked.repository.mockImplementation(async (path: string) => snapshot(path));
   mocked.commit.mockImplementation(async (_path: string, oid: string) => detail(oid));
@@ -149,6 +157,111 @@ afterEach(() => {
 });
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('偏好設定即時套用 toast 位置、保存秒數、可預覽兩種類型及重設', async () => {
+    const view = render(App);
+    await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
+    const settings = screen.getByRole('dialog', { name: '偏好設定' });
+    await fireEvent.update(
+      within(settings).getByRole('combobox', { name: 'Toast 顯示位置' }),
+      'top-center',
+    );
+    await fireEvent.update(
+      within(settings).getByRole('combobox', { name: 'Toast 自動關閉秒數' }),
+      '8',
+    );
+    await fireEvent.click(within(settings).getByRole('button', { name: '預覽手動關閉' }));
+    expect(document.querySelector('.toast-host')?.classList.contains('toast-top-center')).toBe(
+      true,
+    );
+    expect(document.querySelector('.toast')?.getAttribute('data-dismissal')).toBe('manual');
+    await fireEvent.click(within(settings).getByRole('button', { name: '預覽自動關閉' }));
+    expect(document.querySelectorAll('.toast')).toHaveLength(2);
+    expect(screen.getByText('8 秒後自動關閉')).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!)).toMatchObject({
+      toastPosition: 'top-center',
+      toastDuration: 8,
+    });
+    view.unmount();
+    render(App);
+    await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));
+    expect(
+      (screen.getByRole('combobox', { name: 'Toast 顯示位置' }) as HTMLSelectElement).value,
+    ).toBe('top-center');
+    expect(
+      (screen.getByRole('combobox', { name: 'Toast 自動關閉秒數' }) as HTMLSelectElement).value,
+    ).toBe('8');
+    await fireEvent.click(screen.getByRole('button', { name: '還原預設設定' }));
+    expect(JSON.parse(localStorage.getItem(PREFERENCES_KEY)!)).toMatchObject({
+      toastPosition: 'bottom-right',
+      toastDuration: 5,
+    });
+  });
+  it('PR／MR 錯誤統一顯示於可關閉的 toast，重試與建立輸入仍保留', async () => {
+    saveProjects();
+    const request = {
+      number: 7,
+      title: '遠端 PR',
+      body: '',
+      author: 'dev',
+      state: 'open',
+      draft: false,
+      sourceBranch: 'feature',
+      targetBranch: 'main',
+      updatedAt: '2026-10-12T08:00:00Z',
+      url: 'https://github.com/team/repo/pull/7',
+      labels: [],
+    };
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      remotes: [{ name: 'origin', url: 'https://github.com/team/repo.git' }],
+    }));
+    mocked.requests
+      .mockRejectedValueOnce(new Error('清單讀取失敗'))
+      .mockResolvedValue({ items: [request], nextCursor: null });
+    mocked.requestDetail
+      .mockRejectedValueOnce(new Error('內容讀取失敗'))
+      .mockResolvedValue({ request, headOid: 'a'.repeat(40), mergeStatus: 'clean' });
+    mocked.requestAction.mockRejectedValueOnce(new Error('target_branch does not exist'));
+    mocked.requestChanges.mockRejectedValueOnce(new Error('Changes 讀取失敗'));
+    mocked.website.mockRejectedValueOnce(new Error('網站開啟失敗'));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '瀏覽 PR／MR' }));
+    const page = screen.getByRole('region', { name: 'PR／MR' });
+    const expectToast = async (text: string) => {
+      const toast = await screen.findByRole('alert');
+      expect(toast.classList.contains('toast')).toBe(true);
+      expect(toast.textContent).toContain(text);
+      expect(within(page).queryByRole('alert')).toBeNull();
+      expect(page.textContent).not.toContain(text);
+      await fireEvent.click(within(toast).getByRole('button', { name: '關閉提示' }));
+      expect(screen.queryByRole('alert')).toBeNull();
+    };
+    await expectToast('清單讀取失敗');
+    await fireEvent.click(screen.getByRole('button', { name: '重試' }));
+    await expectToast('內容讀取失敗');
+    await fireEvent.click(screen.getByRole('button', { name: '重試內容' }));
+    await screen.findByRole('button', { name: '留言' });
+    await fireEvent.click(screen.getByRole('button', { name: '建立 PR／MR' }));
+    await fireEvent.update(screen.getByRole('textbox', { name: 'PR／MR 標題' }), '新功能');
+    await waitFor(() => expect(mocked.requestBranches).toHaveBeenCalled());
+    await fireEvent.update(screen.getByRole('combobox', { name: 'PR／MR 來源分支' }), 'feature');
+    await fireEvent.click(screen.getByRole('button', { name: '確認建立' }));
+    await expectToast('target_branch does not exist');
+    expect((screen.getByRole('textbox', { name: 'PR／MR 標題' }) as HTMLInputElement).value).toBe(
+      '新功能',
+    );
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: '取消建立' }).hasAttribute('disabled')).toBe(false),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: '取消建立' }));
+    await screen.findByRole('button', { name: '留言' });
+    await fireEvent.click(screen.getByRole('tab', { name: 'Changes' }));
+    await expectToast('Changes 讀取失敗');
+    await fireEvent.click(screen.getByRole('tab', { name: '概覽' }));
+    await fireEvent.click(screen.getByRole('button', { name: '在網站開啟 PR' }));
+    await expectToast('網站開啟失敗');
+  });
   it('遠端操作期間可切換專案，但不卸載原頁或允許關閉進行中的專案', async () => {
     saveProjects();
     const request = {

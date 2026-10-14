@@ -51,6 +51,8 @@ import TrustProjectDialog from './TrustProjectDialog.vue';
 import { provideContextMenu, type MenuItem } from './contextMenu';
 import ColumnHeading from './ColumnHeading.vue';
 import PreferencesDialog from './Preferences.vue';
+import ToastHost from './ToastHost.vue';
+import { useToasts } from './toasts';
 import { useAppUpdate } from './appUpdate';
 import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
 import { graphColor, selectedGraphLine, type GraphGlowRow } from './graph';
@@ -104,7 +106,7 @@ function openStash() {
 async function operateStash(request: GitRequest) {
   stashError.value = '';
   const success = await operate(request);
-  if (!success && stashOpen.value) stashError.value = message.value;
+  if (!success && stashOpen.value) stashError.value = operationError.value;
   return success;
 }
 const commitAction = shallowRef<{
@@ -150,7 +152,7 @@ const dispatch = (action: Action) => {
     (action.type === 'close' || action.type === 'remove') &&
     requestBusyPaths.value.includes(action.path)
   ) {
-    message.value = '此專案正在執行 PR／MR 操作，請等操作完成後再關閉。';
+    notifyInfo('此專案正在執行 PR／MR 操作，請等操作完成後再關閉。');
     return;
   }
   let next = sessionReducer(session.value, action);
@@ -193,7 +195,15 @@ let disposed = false;
 const refresh = ref(0);
 const projectSearch = ref('');
 const queries = ref<Record<string, string>>({});
-const message = ref('');
+const {
+  messages: toastMessages,
+  dismiss: dismissToast,
+  error: notifyError,
+  success: notifySuccess,
+  info: notifyInfo,
+  show: showToast,
+} = useToasts(() => preferences.value.toastDuration);
+const operationError = ref('');
 const adding = ref(false);
 const operating = ref(false);
 const pathDialog = ref(false);
@@ -341,7 +351,7 @@ async function openRepositoryLink(url: string) {
   try {
     await openRepositoryWebsite(url);
   } catch (error) {
-    message.value = `無法開啟 repo 網站：${String(error)}`;
+    notifyError(`無法開啟 repo 網站：${String(error)}`);
   } finally {
     openingRepository.value = false;
   }
@@ -488,7 +498,7 @@ watch(
     try {
       localStorage.setItem(preferencesStorageKey, JSON.stringify(value));
     } catch {
-      message.value = '無法儲存偏好設定，設定僅在本次使用期間生效。';
+      notifyError('無法儲存偏好設定，設定僅在本次使用期間生效。');
     }
   },
   { immediate: true },
@@ -514,7 +524,7 @@ watch(
     try {
       localStorage.setItem(storageKey, JSON.stringify(value));
     } catch {
-      message.value = '無法儲存分頁狀態，請確認應用程式資料空間。';
+      notifyError('無法儲存分頁狀態，請確認應用程式資料空間。');
     }
   },
   { immediate: true },
@@ -555,12 +565,14 @@ async function operate(request: GitRequest): Promise<boolean> {
   if (!currentTab || operating.value || loading.value || !native) return false;
   const name = project.value?.name ?? currentTab.path;
   operating.value = true;
+  operationError.value = '';
   try {
     await api.operate(currentTab.path, request);
-    message.value = `${name}：Git 操作已完成。`;
+    notifySuccess(`${name}：Git 操作已完成。`);
     return true;
   } catch (error) {
-    message.value = `${name}：${String(error)}`;
+    operationError.value = `${name}：${String(error)}`;
+    notifyError(operationError.value);
     return false;
   } finally {
     // Refresh even after failure: hooks and remote operations can make partial changes.
@@ -678,7 +690,7 @@ function rememberScroll(e: Event) {
 }
 function jumpBranch(oid: string) {
   if (snapshot.value?.rows.some((r) => r.commit?.oid === oid)) select(oid, true);
-  else message.value = '這個分支位於已載入的歷史範圍之外，請先載入更多紀錄。';
+  else notifyInfo('這個分支位於已載入的歷史範圍之外，請先載入更多紀錄。');
   branchMenu.value = false;
 }
 function clickBranch(event: MouseEvent, branch: Branch) {
@@ -704,7 +716,7 @@ function finishBranchFocus() {
   const data = snapshot.value;
   if (error.value || !data) {
     pendingBranchFocus.value = null;
-    message.value = `無法跳至 ${pending.branch.name}：${error.value ?? '無法讀取歷史'}`;
+    notifyError(`無法跳至 ${pending.branch.name}：${error.value ?? '無法讀取歷史'}`);
     return;
   }
   if (data.rows.some((row) => row.commit?.oid === pending.branch.oid)) {
@@ -720,7 +732,7 @@ function finishBranchFocus() {
     updateTab({ limit: Math.min(tab.value.limit * 2, 5000) });
   } else {
     pendingBranchFocus.value = null;
-    message.value = `無法跳至 ${pending.branch.name}：目標不在目前歷史範圍內（最多載入 5,000 筆）。`;
+    notifyInfo(`無法跳至 ${pending.branch.name}：目標不在目前歷史範圍內（最多載入 5,000 筆）。`);
   }
 }
 watch([snapshot, loading, error, () => tab.value?.path], finishBranchFocus, { flush: 'post' });
@@ -912,7 +924,7 @@ function checkoutBranch(name: string) {
   if (branch.isRemote) {
     const commit = data?.rows.find((row) => row.commit?.oid === branch.oid)?.commit;
     if (commit) openCommitAction('checkout', commit, branch.name);
-    else message.value = '請先載入更多紀錄，再 Checkout 此遠端分支。';
+    else notifyInfo('請先載入更多紀錄，再 Checkout 此遠端分支。');
     return;
   }
   return operate({ operation: 'switchBranch', branch: branch.name });
@@ -941,7 +953,7 @@ async function copyCommitText(value: string) {
   try {
     await navigator.clipboard.writeText(value);
   } catch (error) {
-    message.value = `無法複製：${String(error)}`;
+    notifyError(`無法複製：${String(error)}`);
   }
 }
 function openCommitMenu(event: MouseEvent, oid: string) {
@@ -1037,7 +1049,7 @@ async function addPaths(paths: string[]) {
     }
   }
   adding.value = false;
-  if (errors.length) message.value = errors.join('\n');
+  if (errors.length) notifyError(errors.join('\n'));
   else {
     pathDialog.value = false;
     inputPath.value = '';
@@ -1064,16 +1076,16 @@ async function trustProject() {
     dispatch({ type: 'add', project });
     ownershipIssues.value.shift();
     inputPath.value = '';
-    message.value = `${project.name}：已信任並加入專案。`;
+    notifySuccess(`${project.name}：已信任並加入專案。`);
   } catch (error) {
-    message.value = `${issue.path}：${String(error)}`;
+    notifyError(`${issue.path}：${String(error)}`);
   } finally {
     trusting.value = false;
   }
 }
 async function addProject() {
   if (!native && !demo) {
-    message.value = '請以 Tauri 桌面版啟動，才能讀取電腦上的 Git 專案。';
+    notifyInfo('請以 Tauri 桌面版啟動，才能讀取電腦上的 Git 專案。');
     return;
   }
   if (demo) {
@@ -1085,7 +1097,7 @@ async function addProject() {
     const paths = await chooseProjects();
     if (paths.length) await addPaths(paths);
   } catch (e) {
-    message.value = String(e);
+    notifyError(String(e));
   }
 }
 
@@ -1232,7 +1244,7 @@ onUnmounted(() => {
       'resizing-sidebar': resizingSidebar,
     }"
   >
-    <WindowTitlebar v-if="native" @error="message = $event" />
+    <WindowTitlebar v-if="native" @error="notifyError" />
     <aside class="sidebar" :inert="settingsOpen ? true : undefined">
       <div class="brand">
         <div class="brand-mark"><GitBranch :size="22" /></div>
@@ -1260,7 +1272,7 @@ onUnmounted(() => {
         @rename="rename = { path: $event.path, name: $event.name }"
         @path="
           inputPath = $event;
-          message = $event;
+          notifyInfo($event);
         "
       />
       <div class="sidebar-bottom">
@@ -1725,10 +1737,12 @@ onUnmounted(() => {
               session.projects.find((p) => p.path === requestTab.path)?.name ?? requestTab.path
             "
             :remotes="resources.get(requestTab.path)?.data?.remotes ?? []"
+            :head="resources.get(requestTab.path)?.data?.head"
             :active="requestTab.path === tab.path && requestsOpen"
             :list-width="preferences.requestListWidth"
             :changes-width="preferences.changesListWidth"
             toolbar-target="#request-toolbar"
+            @error="notifyError"
             @resize-list="preferences = { ...preferences, requestListWidth: $event }"
             @resize-changes="preferences = { ...preferences, changesListWidth: $event }"
             @busy="requestBusy(requestTab.path, $event)"
@@ -1817,14 +1831,20 @@ onUnmounted(() => {
       :updater="updater"
       @close="closePreferences"
       @reset="preferences = { ...defaultPreferences }"
+      @preview-toast="
+        showToast(
+          $event === 'manual' ? '這是需要手動關閉的通知。' : '這是倒數自動關閉的通知。',
+          'info',
+          $event,
+        )
+      "
     />
-    <template v-if="message"
-      ><div class="toast" role="alert">
-        <pre>{{ message }}</pre>
-        <button class="icon-button" aria-label="關閉提示" @click="() => (message = '')">
-          <X :size="15" />
-        </button></div></template
-    ><template v-if="pathDialog || rename || help"
+    <ToastHost
+      :messages="toastMessages"
+      :position="preferences.toastPosition"
+      @dismiss="dismissToast"
+    />
+    <template v-if="pathDialog || rename || help"
       ><div
         class="modal-backdrop"
         @click="
@@ -1894,7 +1914,7 @@ onUnmounted(() => {
                     });
                     rename = null;
                   } else if (native || demo) void addPaths([inputPath]);
-                  else message = '請以 Tauri 桌面版啟動後再加入專案。';
+                  else notifyInfo('請以 Tauri 桌面版啟動後再加入專案。');
                 }
               "
             >

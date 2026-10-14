@@ -8,6 +8,7 @@ import type {
   RequestDetail,
   RequestChanges,
   RequestAction,
+  RequestBranches,
   CommitDetail,
   FilePatch,
   PatchSource,
@@ -88,6 +89,8 @@ export async function chooseProjects(): Promise<string[]> {
 }
 
 export const api = {
+  requestBranches: (path: string, remote: string, provider: Forge) =>
+    call<RequestBranches>('read_request_branches', { path, remote, provider }),
   requestSource: (
     path: string,
     remote: string,
