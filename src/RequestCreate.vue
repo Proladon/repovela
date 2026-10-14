@@ -1,21 +1,63 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
-import type { RequestAction } from './types';
+import { computed, onUnmounted, ref, watch } from 'vue';
+import { api } from './api';
+import type { Forge, RequestAction } from './types';
 import MarkdownPreview from './MarkdownPreview.vue';
-const props = defineProps<{ busy: boolean; run: (request: RequestAction) => Promise<boolean> }>();
-const emit = defineEmits<{ cancel: [] }>();
+const props = defineProps<{
+  path: string;
+  remote: string;
+  provider: Forge;
+  initialSource?: string | null;
+  busy: boolean;
+  run: (request: RequestAction) => Promise<boolean>;
+}>();
+const emit = defineEmits<{ cancel: []; error: [message: string] }>();
 const title = ref('');
 const body = ref('');
 const source = ref('');
-const target = ref('main');
+const target = ref('');
+const branches = ref<string[]>([]);
+const loading = ref(false);
+const failed = ref(false);
+let generation = 0;
+async function loadBranches() {
+  const token = ++generation;
+  loading.value = true;
+  failed.value = false;
+  branches.value = [];
+  source.value = '';
+  target.value = '';
+  try {
+    const result = await api.requestBranches(props.path, props.remote, props.provider);
+    if (token !== generation) return;
+    branches.value = result.branches;
+    if (result.defaultBranch && branches.value.includes(result.defaultBranch))
+      target.value = result.defaultBranch;
+    if (props.initialSource && branches.value.includes(props.initialSource))
+      source.value = props.initialSource;
+  } catch (cause) {
+    if (token !== generation) return;
+    failed.value = true;
+    emit('error', `無法讀取遠端分支：${String(cause)}`);
+  } finally {
+    if (token === generation) loading.value = false;
+  }
+}
+watch(
+  () => [props.path, props.remote, props.provider],
+  () => void loadBranches(),
+  { immediate: true },
+);
+onUnmounted(() => ++generation);
 const draft = ref(true);
 const valid = computed(
   () =>
     !props.busy &&
+    !loading.value &&
     !!title.value.trim() &&
-    !!source.value.trim() &&
-    !!target.value.trim() &&
-    source.value.trim() !== target.value.trim(),
+    branches.value.includes(source.value) &&
+    branches.value.includes(target.value) &&
+    source.value !== target.value,
 );
 async function submit() {
   if (valid.value)
@@ -23,8 +65,8 @@ async function submit() {
       operation: 'create',
       title: title.value.trim(),
       message: body.value,
-      sourceBranch: source.value.trim(),
-      targetBranch: target.value.trim(),
+      sourceBranch: source.value,
+      targetBranch: target.value,
       draft: draft.value,
     });
 }
@@ -43,17 +85,40 @@ async function submit() {
     /></label>
     <div class="create-branches">
       <label
-        >來源分支<input
+        >來源分支<select
           v-model="source"
           required
-          :disabled="busy"
+          :disabled="busy || loading || !branches.length"
           aria-label="PR／MR 來源分支"
-          placeholder="feature/my-change" /></label
+        >
+          <option disabled value="">{{ loading ? '正在讀取分支…' : '選擇來源分支' }}</option>
+          <option v-for="branch in branches" :key="branch" :value="branch">{{ branch }}</option>
+        </select></label
       ><span>→</span
       ><label
-        >目標分支<input v-model="target" required :disabled="busy" aria-label="PR／MR 目標分支"
-      /></label>
+        >目標分支<select
+          v-model="target"
+          required
+          :disabled="busy || loading || !branches.length"
+          aria-label="PR／MR 目標分支"
+        >
+          <option disabled value="">{{ loading ? '正在讀取分支…' : '選擇目標分支' }}</option>
+          <option v-for="branch in branches" :key="branch" :value="branch">{{ branch }}</option>
+        </select></label
+      >
     </div>
+    <button
+      v-if="failed"
+      class="soft-button"
+      type="button"
+      :disabled="busy || loading"
+      @click="loadBranches"
+    >
+      重試讀取分支
+    </button>
+    <p v-else-if="!loading && !branches.length" class="subtle" role="status">
+      所選遠端沒有可用分支。
+    </p>
     <label
       >說明<textarea
         v-model="body"
@@ -90,6 +155,7 @@ label {
   margin: 16px 0;
 }
 input,
+select,
 textarea {
   background: #15171d;
   border: 1px solid #494455;

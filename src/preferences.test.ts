@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { defaultPreferences, fontStack, restorePreferences } from './preferences';
+import { defaultPreferences, fontStack, restorePreferences, toastPositions } from './preferences';
 
 describe('偏好設定保存與還原', () => {
+  it('toast 六種位置與倒數秒數可還原，舊資料和非法值使用預設', () => {
+    for (const position of Object.keys(toastPositions))
+      expect(
+        restorePreferences(
+          JSON.stringify({ version: 1, toastPosition: position, toastDuration: 8 }),
+        ),
+      ).toMatchObject({ toastPosition: position, toastDuration: 8 });
+    for (const saved of [
+      {},
+      { toastPosition: 'unknown', toastDuration: -1 },
+      { toastPosition: 'toString', toastDuration: '5' },
+    ])
+      expect(restorePreferences(JSON.stringify({ version: 1, ...saved }))).toMatchObject({
+        toastPosition: 'bottom-right',
+        toastDuration: 5,
+      });
+  });
   it('Changes 清單獨立保存寬度，缺少或無效設定沿用自動寬度', () => {
     for (const [saved, expected] of [
       [320, 320],

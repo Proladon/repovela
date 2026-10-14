@@ -3,6 +3,20 @@ use tauri::Manager;
 mod terminal;
 
 #[tauri::command]
+async fn read_request_branches(
+    path: String,
+    remote: String,
+    provider: repovela_core::Forge,
+) -> Result<repovela_core::RequestBranches, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        repovela_core::read_request_branches(&path, &remote, provider)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 async fn read_request_source(
     path: String,
     remote: String,
@@ -195,6 +209,7 @@ pub fn run() {
             trust_project,
             read_repository,
             read_change_requests,
+            read_request_branches,
             read_request_detail,
             read_request_changes,
             read_request_source,

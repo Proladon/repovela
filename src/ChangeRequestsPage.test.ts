@@ -11,6 +11,7 @@ const mocked = vi.hoisted(() => ({
   detail: vi.fn(),
   changes: vi.fn(),
   action: vi.fn(),
+  branches: vi.fn(),
 }));
 vi.mock('./api', () => ({
   demo: false,
@@ -20,6 +21,7 @@ vi.mock('./api', () => ({
     requestDetail: mocked.detail,
     requestChanges: mocked.changes,
     requestAction: mocked.action,
+    requestBranches: mocked.branches,
   },
   openRepositoryWebsite: mocked.website,
 }));
@@ -68,6 +70,7 @@ beforeEach(() => {
   });
   mocked.changes.mockResolvedValue({ files: [], headOid: 'a'.repeat(40), nextCursor: null });
   mocked.action.mockResolvedValue('操作已完成');
+  mocked.branches.mockResolvedValue({ branches: ['main', 'feature/new'], defaultBranch: 'main' });
 });
 afterEach(cleanup);
 
@@ -130,12 +133,16 @@ it('載入失敗可重試，載入更多失敗仍保留原清單與游標', asyn
     .mockResolvedValueOnce({ items: [item()], nextCursor: 'next' })
     .mockRejectedValueOnce(new Error('網路中斷'))
     .mockResolvedValueOnce({ items: [item(8, '第二頁')], nextCursor: null });
-  render(ChangeRequestsPage, { props });
-  expect((await screen.findByRole('alert')).textContent).toContain('請先登入 gh');
+  const view = render(ChangeRequestsPage, { props });
+  await screen.findByRole('button', { name: '重試' });
+  expect(view.emitted('error')?.at(-1)).toEqual(['Error: 請先登入 gh']);
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.queryByText(/請先登入 gh/)).toBeNull();
   await fireEvent.click(screen.getByRole('button', { name: '重試' }));
   await screen.findByRole('heading', { name: '加入搜尋' });
   await fireEvent.click(screen.getByRole('button', { name: '載入更多 PR' }));
-  expect((await screen.findByRole('alert')).textContent).toContain('網路中斷');
+  await screen.findByRole('button', { name: '重試' });
+  expect(view.emitted('error')?.at(-1)).toEqual(['Error: 網路中斷']);
   expect(screen.getByRole('heading', { name: '加入搜尋' })).toBeTruthy();
   await fireEvent.click(screen.getByRole('button', { name: '重試' }));
   await screen.findByText('已載入 2 筆');
@@ -152,11 +159,12 @@ it('載入期間不允許重複重新整理，卸載後忽略晚到回應', asyn
   view.unmount();
   request.resolve({ items: [item()], nextCursor: null });
   await Promise.resolve();
+  expect(view.emitted('error')).toBeUndefined();
   expect(screen.queryByRole('region', { name: 'PR／MR' })).toBeNull();
 });
 
 it('未知主機須手動選擇平台，空結果與 opener 錯誤清楚顯示', async () => {
-  render(ChangeRequestsPage, {
+  const view = render(ChangeRequestsPage, {
     props: {
       ...props,
       remotes: [{ name: 'origin', url: 'ssh://git@code.example.com/team/repo.git' }],
@@ -168,7 +176,10 @@ it('未知主機須手動選擇平台，空結果與 opener 錯誤清楚顯示',
   await screen.findByRole('heading', { name: '加入搜尋' });
   mocked.website.mockRejectedValue(new Error('開啟失敗'));
   await fireEvent.click(screen.getByRole('button', { name: '在網站開啟 PR' }));
-  expect((await screen.findByRole('alert')).textContent).toContain('無法開啟網站');
+  await waitFor(() =>
+    expect(view.emitted('error')?.at(-1)).toEqual(['無法開啟網站：Error: 開啟失敗']),
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
   mocked.read.mockResolvedValue({ items: [], nextCursor: null });
   await fireEvent.click(screen.getByRole('button', { name: '重新整理 PR／MR' }));
   await screen.findByText('沒有開啟中的 PR。');
@@ -287,16 +298,22 @@ it('合併顯示方向與明確確認，使用所選方式與已查看的 commit
 
 it('建立使用頁內表單且只建立遠端請求，失敗保留輸入並提示核對', async () => {
   mocked.action.mockRejectedValue(new Error('權限不足'));
-  render(ChangeRequestsPage, { props });
+  const view = render(ChangeRequestsPage, { props });
   await screen.findByRole('heading', { name: '加入搜尋' });
   await fireEvent.click(screen.getByRole('button', { name: '建立 PR／MR' }));
   await screen.findByRole('textbox', { name: 'PR／MR 標題' });
   expect(screen.queryByRole('dialog')).toBeNull();
   await fireEvent.update(screen.getByRole('textbox', { name: 'PR／MR 標題' }), '新功能');
-  await fireEvent.update(screen.getByRole('textbox', { name: 'PR／MR 來源分支' }), 'feature/new');
+  await screen.findAllByRole('option', { name: 'feature/new' });
+  await fireEvent.update(screen.getByRole('combobox', { name: 'PR／MR 來源分支' }), 'feature/new');
   await fireEvent.update(screen.getByRole('textbox', { name: 'PR／MR 說明' }), '建立說明');
   await fireEvent.click(screen.getByRole('button', { name: '確認建立' }));
-  expect((await screen.findByRole('alert')).textContent).toContain('重新整理核對遠端結果');
+  await waitFor(() =>
+    expect(view.emitted('error')?.at(-1)).toEqual([
+      'Error: 權限不足\n請重新整理核對遠端結果後再執行，避免重複送出。',
+    ]),
+  );
+  expect(screen.queryByRole('alert')).toBeNull();
   expect((screen.getByRole('textbox', { name: 'PR／MR 標題' }) as HTMLInputElement).value).toBe(
     '新功能',
   );
@@ -312,12 +329,14 @@ it('建立使用頁內表單且只建立遠端請求，失敗保留輸入並提�
 
 it('GitLab 提供撤銷核准，草稿禁止合併，最新資料失敗時禁止操作', async () => {
   mocked.read.mockResolvedValue({ items: [{ ...item(), draft: false }], nextCursor: null });
-  render(ChangeRequestsPage, { props: { ...props, remotes: [props.remotes[0]!] } });
+  const view = render(ChangeRequestsPage, { props: { ...props, remotes: [props.remotes[0]!] } });
   await screen.findByRole('button', { name: '撤銷核准' });
   expect(screen.queryByRole('button', { name: '要求修改' })).toBeNull();
   mocked.detail.mockRejectedValueOnce(new Error('網路中斷'));
   await fireEvent.click(screen.getByRole('button', { name: '重新整理 PR／MR' }));
-  await screen.findByRole('alert');
+  await screen.findByRole('button', { name: '重試內容' });
+  expect(view.emitted('error')?.at(-1)).toEqual(['Error: 網路中斷']);
+  expect(screen.queryByRole('alert')).toBeNull();
   expect(screen.getByRole('button', { name: '合併' }).hasAttribute('disabled')).toBe(true);
 });
 

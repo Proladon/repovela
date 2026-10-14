@@ -1,10 +1,12 @@
 //! Desktop adapter around keifu's commit graph engine.
 mod change_request_actions;
 mod change_requests;
+mod request_branches;
 pub use change_request_actions::{
     operate_request, read_request_changes, read_request_detail, read_request_source, RequestAction,
     RequestChanges, RequestDetail,
 };
+pub use request_branches::{read_request_branches, RequestBranches};
 pub mod git;
 pub mod graph;
 mod operations;

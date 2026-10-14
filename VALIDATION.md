@@ -1,5 +1,23 @@
 # 驗證記錄
 
+## 2026-10-13：Toast 位置與關閉方式
+
+偏好設定新增六種 Toast 顯示位置、3／5／8／10／15 秒自動關閉倒數與兩種預覽，立即生效並保存；舊資料預設右下、5 秒。通知改為獨立堆疊：錯誤需手動關閉，Git 成功與一般提示倒數關閉；滑鼠停留或鍵盤聚焦時暫停。保留多筆不同錯誤、避免同一未關閉錯誤重複堆疊，卸載清除計時器。移除依側邊欄寬度硬編碼的 toast 定位。
+
+224 項前端測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。Windows／WebView2 的 Toast、偏好設定及 PR／MR 三個流程通過；在 1000×640 核對六種位置邊界、停留暫停、倒數移除與手動訊息保留，重載確認保存，另檢視 1360×880 截圖。自動提前關閉測試初次在卸載後讀取 testing-library 清除的事件記錄而失敗，改用關閉回呼核對後完整套件通過。Tauri 編譯與連結完成，原 debug 執行檔使用中無法覆寫，新版另存為 `src-tauri/target/debug/repovela-toast-settings.exe` 並以此完成原生驗證。本次未修改 Rust 邏輯。
+
+## 2026-10-13：建立 PR／MR 分支下拉選單
+
+來源與目標分支改為 select，開啟表單時從所選遠端的 GitHub／GitLab API 讀取分支與預設分支，完整處理分頁並排序去重。目標預選遠端預設分支；來源預選已存在遠端的目前分支。載入中、空清單或同分支禁止送出；失敗透過既有 toast 顯示並提供重試，保留草稿，切換來源或卸載後忽略過期回應。
+
+217 項前端測試、54 項 Rust 測試、Vue 型別／Vite 建置、Clippy 全 workspace／targets、Rustfmt、Prettier 與 diff 空白檢查通過。Windows／WebView2 原生流程通過，確認 GitHub 選取遠端來源並建立、GitLab 切換後使用不同分支清單及 develop 預設目標；已檢視 `request-branch-selects.png`。平台回應使用隔離 CLI fixture，未對真實遠端寫入。初次型別檢查發現測試的 ByRoleOptions 不支援 exact，移除後建置通過。Tauri 編譯與連結完成，原 debug 執行檔使用中無法覆寫，新版另存為 `src-tauri/target/debug/repovela-branch-selects.exe` 並以此完成原生驗證。
+
+## 2026-10-13：PR／MR 錯誤統一使用 toast
+
+清單、內容、Changes、開啟網站與遠端操作的錯誤改由 App 既有可關閉 toast 顯示，移除頁內錯誤文字。讀取失敗保留重試按鈕、分頁游標與選取；建立失敗保留輸入與核對遠端結果提示。沿用過期回應及卸載防護。
+
+211 項前端測試、Vue 型別／Vite 建置、Prettier 與 diff 空白檢查通過。Windows／WebView2 原生 PR／MR 流程通過，涵蓋 CLI 建立失敗的 toast、關閉提示、輸入保留、再次建立及讀取失敗重試；已檢視 `request-error-toast.png`。首次原生測試因未關閉第二次讀取失敗的 toast，遮住後續載入更多按鈕而失敗；補上關閉提示步驟後通過。CLI 回應使用隔離 fixture，未對真實遠端寫入。Tauri 編譯與連結完成，原 debug 執行檔因使用中無法覆寫，新版另存為 `src-tauri/target/debug/repovela-toast.exe` 並以此完成原生驗證。
+
 ## 2026-10-12：PR／MR 操作移到工具列
 
 移除 PR／MR 額外標題列、頂部外層留白與面板上方圓角。「建立 PR／MR」及來源設定移至專案工具列，清單直接接在工具列下方。工具列僅呈現目前專案的操作；切換專案保留建立表單與進行中的操作，執行期間仍停用建立按鈕。

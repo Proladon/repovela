@@ -20,6 +20,7 @@ import type {
 const props = defineProps<{
   path: string;
   name: string;
+  head?: string | null;
   remotes: Remote[];
   active: boolean;
   listWidth?: number | null;
@@ -27,6 +28,7 @@ const props = defineProps<{
   toolbarTarget?: string;
 }>();
 const emit = defineEmits<{
+  error: [message: string];
   busy: [busy: boolean];
   resizeList: [width: number | null];
   resizeChanges: [width: number | null];
@@ -155,7 +157,6 @@ const cursor = ref<string | null>(null);
 const loading = ref(false);
 const error = ref('');
 const opening = ref(false);
-const openError = ref('');
 const detail = ref<RequestDetail | null>(null);
 const detailLoading = ref(false);
 const detailError = ref('');
@@ -163,7 +164,6 @@ const detailTab = ref<'overview' | 'changes'>('overview');
 const revision = ref(0);
 const busy = ref(false);
 const notice = ref('');
-const actionError = ref('');
 const creating = ref(false);
 watch(busy, (value) => emit('busy', value), { flush: 'sync' });
 const prefix = computed(() => (provider.value === 'gitlab' ? '!' : '#'));
@@ -205,7 +205,6 @@ async function load(more = false, preserve = false) {
   const previousNumber = preserve ? selectedNumber.value : null;
   loading.value = true;
   error.value = '';
-  openError.value = '';
   if (!more && !preserve) {
     items.value = [];
     selectedNumber.value = null;
@@ -228,7 +227,10 @@ async function load(more = false, preserve = false) {
       selectedNumber.value = previousNumber;
     if (preserve) revision.value++;
   } catch (cause) {
-    if (generation === token && !disposed) error.value = String(cause);
+    if (generation === token && !disposed) {
+      error.value = String(cause);
+      emit('error', error.value);
+    }
   } finally {
     if (generation === token && !disposed) loading.value = false;
   }
@@ -245,7 +247,6 @@ watch(
     detail.value = null;
     creating.value = false;
     notice.value = '';
-    actionError.value = '';
     void load();
   },
   { immediate: true },
@@ -266,7 +267,10 @@ async function loadDetail() {
     if (token !== detailGeneration || disposed) return;
     detail.value = data;
   } catch (cause) {
-    if (token === detailGeneration && !disposed) detailError.value = String(cause);
+    if (token === detailGeneration && !disposed) {
+      detailError.value = String(cause);
+      emit('error', detailError.value);
+    }
   } finally {
     if (token === detailGeneration && !disposed) detailLoading.value = false;
   }
@@ -275,7 +279,6 @@ watch([() => listed.value?.number, remote, provider, revision, creating], () => 
 async function runAction(request: RequestAction) {
   if (busy.value || !provider.value || !native) return false;
   busy.value = true;
-  actionError.value = '';
   notice.value = '';
   let succeeded = false;
   try {
@@ -290,7 +293,7 @@ async function runAction(request: RequestAction) {
     }
   } catch (cause) {
     if (!disposed)
-      actionError.value = `${String(cause)}\n請重新整理核對遠端結果後再執行，避免重複送出。`;
+      emit('error', `${String(cause)}\n請重新整理核對遠端結果後再執行，避免重複送出。`);
   } finally {
     if (!disposed) {
       await load(false, true);
@@ -308,11 +311,10 @@ async function startCreate() {
 async function openSelected() {
   if (!selected.value || opening.value) return;
   opening.value = true;
-  openError.value = '';
   try {
     await openRepositoryWebsite(selected.value.url);
   } catch (cause) {
-    if (!disposed) openError.value = `無法開啟網站：${String(cause)}`;
+    if (!disposed) emit('error', `無法開啟網站：${String(cause)}`);
   } finally {
     opening.value = false;
   }
@@ -400,14 +402,7 @@ onUnmounted(() => {
       </div>
     </Teleport>
     <p v-if="!provider" role="status">請選擇這個遠端使用的 GitHub 或 GitLab 平台。</p>
-    <div v-if="error" class="request-error" role="alert">
-      {{ error
-      }}<button class="soft-button" :disabled="loading || busy" @click="load(!!items.length)">
-        重試
-      </button>
-    </div>
     <p v-if="notice" class="request-notice" role="status">{{ notice }}</p>
-    <p v-if="actionError" class="request-error" role="alert">{{ actionError }}</p>
     <div
       v-if="provider"
       ref="browser"
@@ -443,6 +438,14 @@ onUnmounted(() => {
             placeholder="搜尋編號、標題、作者或分支"
         /></label>
         <div class="request-list" aria-label="PR／MR 清單">
+          <button
+            v-if="error"
+            class="soft-button request-retry"
+            :disabled="loading || busy"
+            @click="load(!!items.length)"
+          >
+            重試
+          </button>
           <button
             v-for="item in filtered"
             :key="item.number"
@@ -505,7 +508,17 @@ onUnmounted(() => {
         @dblclick="resetListWidth"
         @keydown="resizeListByKey"
       />
-      <RequestCreate v-if="creating" :busy="busy" :run="runAction" @cancel="creating = false" />
+      <RequestCreate
+        v-if="creating && provider"
+        :path="path"
+        :remote="remote"
+        :provider="provider"
+        :initial-source="head"
+        :busy="busy"
+        :run="runAction"
+        @error="emit('error', $event)"
+        @cancel="creating = false"
+      />
       <article v-else-if="selected" class="request-detail" aria-label="PR／MR 內容">
         <header class="request-detail-header">
           <div class="request-detail-heading">
@@ -542,13 +555,14 @@ onUnmounted(() => {
         <p v-if="detailLoading" class="subtle request-empty" role="status">
           正在讀取 PR／MR 最新資料…
         </p>
-        <div v-if="detailError" class="request-error request-empty" role="alert">
-          {{ detailError
-          }}<button class="soft-button" :disabled="detailLoading || busy" @click="loadDetail">
-            重試內容
-          </button>
-        </div>
-        <p v-if="openError" role="alert" class="request-error request-empty">{{ openError }}</p>
+        <button
+          v-if="detailError"
+          class="soft-button request-retry"
+          :disabled="detailLoading || busy"
+          @click="loadDetail"
+        >
+          重試內容
+        </button>
         <RequestChanges
           v-if="detailTab === 'changes' && detail"
           :key="`${remote}:${provider}:${detail.request.number}`"
@@ -560,6 +574,7 @@ onUnmounted(() => {
           :revision="revision"
           :list-width="changesWidth"
           :active="active"
+          @error="emit('error', $event)"
           @resize-list="emit('resizeChanges', $event)"
         />
         <div v-else-if="detailTab === 'overview'" class="request-overview">
@@ -849,18 +864,10 @@ select:focus-visible {
 .request-more {
   margin: 12px;
 }
-.request-error {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: #f29498;
-  font-size: 12px;
-  max-height: 120px;
+.request-retry {
+  margin: 12px;
+  align-self: flex-start;
   flex-shrink: 0;
-  overflow: auto;
-  margin: 0 0 10px;
-}
-.request-error button {
-  margin-top: 8px;
 }
 .request-notice {
   color: #72d5a1;

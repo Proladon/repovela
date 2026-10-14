@@ -86,10 +86,13 @@ it('分頁失敗保留選取與游標，重試後去重且不重設所選檔案'
       headOid: props.headOid,
       nextCursor: null,
     });
-  render(RequestChanges, { props });
+  const view = render(RequestChanges, { props });
   await screen.findByText(addedLine);
   await fireEvent.click(screen.getByRole('button', { name: '載入更多檔案' }));
-  await screen.findByRole('alert');
+  await screen.findByRole('button', { name: '重試 Changes' });
+  expect(view.emitted('error')?.at(-1)).toEqual(['Error: 網路中斷']);
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.queryByText(/網路中斷/)).toBeNull();
   expect(screen.getByText(addedLine)).toBeTruthy();
   await fireEvent.click(screen.getByRole('button', { name: '重試 Changes' }));
   await waitFor(() => expect(document.querySelectorAll('.changes-file')).toHaveLength(2));

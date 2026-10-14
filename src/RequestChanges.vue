@@ -15,7 +15,10 @@ const props = defineProps<{
   listWidth?: number | null;
   active?: boolean;
 }>();
-const emit = defineEmits<{ resizeList: [width: number | null] }>();
+const emit = defineEmits<{
+  error: [message: string];
+  resizeList: [width: number | null];
+}>();
 const container = ref<HTMLElement | null>(null);
 const containerWidth = ref(0);
 const preferredListWidth = ref<number | null>(props.listWidth ?? null);
@@ -199,7 +202,10 @@ async function load(more = false) {
     cursor.value = page.nextCursor;
     if (!selected.value) selectedPath.value = files.value[0]?.path ?? '';
   } catch (cause) {
-    if (token === generation) error.value = String(cause);
+    if (token === generation) {
+      error.value = String(cause);
+      emit('error', error.value);
+    }
   } finally {
     if (token === generation) loading.value = false;
   }
@@ -288,12 +294,14 @@ onUnmounted(() => {
       @keydown="resizeListByKey"
     />
     <div class="changes-content">
-      <div v-if="error" role="alert" class="changes-error">
-        {{ error
-        }}<button class="soft-button" :disabled="loading" @click="load(!!files.length)">
-          重試 Changes
-        </button>
-      </div>
+      <button
+        v-if="error"
+        class="soft-button changes-retry"
+        :disabled="loading"
+        @click="load(!!files.length)"
+      >
+        重試 Changes
+      </button>
       <template v-if="selected">
         <header class="changes-heading">
           <strong>{{ selected.path }}</strong
@@ -434,7 +442,6 @@ onUnmounted(() => {
   margin: 0;
   overflow-wrap: anywhere;
 }
-.changes-error,
 .changes-warning {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -442,8 +449,10 @@ onUnmounted(() => {
   padding: 12px;
   margin: 0;
 }
-.changes-error button {
-  margin-top: 8px;
+.changes-retry {
+  margin: 12px;
+  align-self: flex-start;
+  flex-shrink: 0;
 }
 .changes-more {
   margin: 10px;
