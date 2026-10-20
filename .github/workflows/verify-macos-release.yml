@@ -1,0 +1,31 @@
+name: Verify macOS release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to verify
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download and verify macOS universal release bundle
+        run: |
+          gh release download "$RELEASE_TAG" --pattern '*.app.tar.gz' --dir download
+          tar -xzf download/*.app.tar.gz -C download
+          app="download/Repovela.app"
+          lipo "$app/Contents/MacOS/repovela" -verify_arch arm64 x86_64
+          codesign --verify --deep --strict "$app"
+          codesign --display --verbose=2 "$app"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist" > version.txt
+          test "v$(cat version.txt)" = "$RELEASE_TAG"

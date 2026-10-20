@@ -71,7 +71,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           app="src-tauri/target/universal-apple-darwin/release/bundle/macos/Repovela.app"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/repovela"
+          lipo "$app/Contents/MacOS/repovela" -verify_arch arm64 x86_64
           codesign --verify --deep --strict "$app"
       - name: Upload Windows portable archive
         if: runner.os == 'Windows'
