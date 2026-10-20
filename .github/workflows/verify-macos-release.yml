@@ -9,7 +9,8 @@ on:
         type: string
 
 permissions:
-  contents: read
+  # GitHub only exposes draft releases to tokens with repository write access.
+  contents: write
 
 jobs:
   verify:
