@@ -37,13 +37,17 @@ Repovela 是以 [keifu](https://github.com/trasta298/keifu) 圖譜演算法為�
 - 工具列的定位圖示、`M` 快捷鍵及右鍵選單可快速 focus 到 master／main 的最新 commit，支援本機與遠端分支；多個候選時可選擇。目標較舊時自動載入更多歷史，最多 5,000 筆，並清除搜尋、將焦點移到該列。
 - 首次開啟分頁時載入 Git 歷史，切換分頁沿用快取；按「重新整理」或 R 更新目前專案。變更遠端顯示選項或載入更多紀錄時會重新讀取；Git 讀取在背景執行。
 
-## Windows 試用
+## 下載與安裝
+
+從 [GitHub Releases](https://github.com/Proladon/repovela/releases/latest) 下載 Windows x64 安裝程式（`-setup.exe`）或可攜式 ZIP；macOS 使用通用版 DMG，同時支援 Apple Silicon 與 Intel，開啟後將 Repovela 拖至 Applications。
+
+macOS 版本使用 ad-hoc 簽署，尚未經 Apple 公證。首次開啟若被阻擋，請至「系統設定 → 隱私權與安全性」允許開啟，詳見 [Apple 說明](https://support.apple.com/zh-tw/102445)。Git 操作需要可從 PATH 啟動的 Git；PR／MR 功能另需對應的 `gh`／`glab`。
 
 偏好設定最上方的「版本與更新」顯示目前版本，提供檢查更新、版本說明、下載進度，以及下載驗證完成後的「安裝更新並重新啟動」。下載期間可關閉設定視窗，重新開啟會保留進度；檢查或下載失敗可重試。安裝會關閉所有終端機工作階段，正在執行 Git 操作時不可安裝。瀏覽器預覽只顯示建置版本，更新功能需使用桌面版。
 
 建置後開啟 `src-tauri/target/release/repovela.exe`，按「加入專案」選擇 Git 專案資料夾。可同時選擇多個資料夾。完成後，未來只需開啟這個應用程式。
 
-這是 Windows x64 可攜式版本，需要 Microsoft Edge WebView2 Runtime。應用程式沒有新增開機自動啟動設定；重開還原是在你再次啟動應用程式時生效。
+Windows 版本需要 Microsoft Edge WebView2 Runtime。應用程式沒有新增開機自動啟動設定；重開還原是在你再次啟動應用程式時生效。
 
 ## 開發
 
@@ -77,9 +81,16 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 pnpm run tauri build --no-bundle
 ```
 
-最後一個指令會產生 `src-tauri/target/release/repovela.exe`。移除 `--no-bundle` 即可建立平台安裝包。此版本只在 Windows 完成編譯驗證；macOS、Linux 尚未驗證。
+最後一個指令在 Windows 會產生 `src-tauri/target/release/repovela.exe`。移除 `--no-bundle` 即可建立平台安裝包。發布流程在 Windows 與 macOS runner 執行測試及編譯；macOS 尚未完成人工桌面操作驗證，Linux 尚未驗證。
 
-## 發布 Windows 更新
+在 macOS 建置通用版：
+
+```sh
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+pnpm run tauri build --target universal-apple-darwin --bundles app,dmg
+```
+
+## 發布 Windows 與 macOS 更新
 
 更新使用 [Tauri Updater](https://v2.tauri.app/plugin/updater/) 驗證安裝包簽章，從此儲存庫最新正式 GitHub Release 的 `latest.json` 取得版本。建議使用 NSIS 安裝版；可攜式執行檔執行更新時會啟動安裝程式，改用安裝版，不會覆寫原本的可攜式檔案。
 
@@ -89,8 +100,8 @@ pnpm run tauri build --no-bundle
 
 1. 同步調整 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 的版本號，例如 `0.2.0`，並更新 lockfile。
 2. 推送相符的版本 tag（例如 `v0.2.0`），或手動執行 `.github/workflows/release.yml`。
-3. 工作流程執行測試、建置簽章 NSIS 安裝包，並建立含 `.exe`、`.sig` 與 `latest.json` 的 Release 草稿。
-4. 檢查安裝包及版本說明後，發布草稿為正式 Release。草稿與預發行版不會成為此更新來源。
+3. 工作流程依序在 Windows 與 macOS 執行測試，建置 Windows NSIS／可攜式 ZIP 及 macOS 通用版 DMG／`.app.tar.gz`，建立 Release 草稿。更新套件附帶 `.sig`，共用的 `latest.json` 包含 Windows x64 及 macOS 兩種架構。
+4. 確認所有平台工作成功、安裝包及版本說明完整後，發布草稿為正式 Release。草稿與預發行版不會成為此更新來源。macOS 的更新簽章與 Apple 公證不同；目前使用 ad-hoc 應用程式簽署。
 
 在首個正式 Release 發布前，「檢查更新」會顯示來源尚未發布或連線失敗，不會誤顯示為最新版本。
 

@@ -1,4 +1,4 @@
-name: Windows release
+name: Desktop release
 
 on:
   push:
@@ -14,7 +14,17 @@ concurrency:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      # latest.json is shared by all platforms; serialize uploads to preserve every entry.
+      max-parallel: 1
+      matrix:
+        include:
+          - platform: windows-latest
+            args: --bundles nsis
+          - platform: macos-latest
+            args: --target universal-apple-darwin --bundles app,dmg
+    runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -23,6 +33,11 @@ jobs:
           node-version: '22'
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
       - name: Validate release version and signing key
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -36,7 +51,8 @@ jobs:
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$appVersion") { throw 'The release tag must match the application version.' }
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
-      - name: Build signed installer and draft release
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml -p repovela-core
+      - name: Build signed bundles and draft release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -45,9 +61,25 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Repovela v__VERSION__
-          releaseBody: '下載 Windows 安裝程式，或在 Repovela 的偏好設定中檢查更新。'
+          releaseBody: '下載 Windows 安裝程式或 macOS 通用版 DMG（Apple Silicon／Intel），或在 Repovela 偏好設定中檢查更新。macOS 使用 ad-hoc 簽署，尚未經 Apple 公證，首次開啟可能需要在「系統設定 → 隱私權與安全性」允許。'
           releaseDraft: true
           prerelease: false
-          args: --bundles nsis
+          args: ${{ matrix.args }}
           uploadUpdaterJson: true
           updaterJsonPreferNsis: true
+      - name: Verify macOS universal bundle and code signature
+        if: runner.os == 'macOS'
+        run: |
+          app="src-tauri/target/universal-apple-darwin/release/bundle/macos/Repovela.app"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/repovela"
+          codesign --verify --deep --strict "$app"
+      - name: Upload Windows portable archive
+        if: runner.os == 'Windows'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $archive = "Repovela_${version}_windows-x64-portable.zip"
+          Compress-Archive -Path src-tauri/target/release/repovela.exe -DestinationPath $archive -Force
+          gh release upload "v$version" $archive --clobber
