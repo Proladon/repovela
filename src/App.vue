@@ -297,7 +297,7 @@ function updateViewportWidth() {
   viewportWidth.value = window.innerWidth;
 }
 const rowHeight = computed(() =>
-  Math.max(44, Math.round((preferences.value.density === 'compact' ? 44 : 52) * fontScale.value)),
+  Math.max(24, Math.round((preferences.value.density === 'compact' ? 28 : 32) * fontScale.value)),
 );
 const connectorHeight = computed(() => Math.round(18 * fontScale.value));
 const appearanceStyle = computed(() => ({
@@ -310,8 +310,6 @@ const appearanceStyle = computed(() => ({
   '--code-font-family': fontStack(preferences.value.codeFontFamily, 'Consolas, monospace'),
   '--commit-row-height': `${rowHeight.value}px`,
   '--connector-row-height': `${connectorHeight.value}px`,
-  '--commit-text-padding':
-    preferences.value.density === 'compact' ? '5px 12px 4px' : '9px 12px 6px',
 }));
 function branchStyle(row: Row) {
   return {
@@ -407,10 +405,11 @@ const headLabel = computed(
       ? `Detached HEAD · ${snapshot.value.headOid.slice(0, 7)}`
       : '尚無 commit'),
 );
-type HistoryColumn = 'graph' | 'message' | 'time' | 'author';
+type HistoryColumn = 'graph' | 'message' | 'hash' | 'time' | 'author';
 const columnWidths = ref<Record<HistoryColumn, number | null>>({
   graph: null,
   message: null,
+  hash: null,
   time: null,
   author: null,
 });
@@ -423,7 +422,8 @@ const historyColumns = computed(() => [
     max: Math.max(600, graphWidth.value),
   },
   { key: 'message' as const, label: 'Commit 訊息', min: 120 * fontScale.value, max: 1600 },
-  { key: 'time' as const, label: '時間', min: 72 * fontScale.value, max: 320 },
+  { key: 'hash' as const, label: 'Hash', min: 88 * fontScale.value, max: 320 },
+  { key: 'time' as const, label: '時間', min: 112 * fontScale.value, max: 320 },
   { key: 'author' as const, label: '作者', min: 90 * fontScale.value, max: 480 },
 ]);
 const historyTableStyle = computed(() => {
@@ -431,17 +431,19 @@ const historyTableStyle = computed(() => {
   const minMessage = 120 * fontScale.value;
   const message =
     columnWidths.value.message === null ? null : Math.max(minMessage, columnWidths.value.message);
+  const hash = Math.max(88 * fontScale.value, columnWidths.value.hash ?? 88 * fontScale.value);
   const defaultTime =
-    (preferences.value.dateFormat === 'full' ? 120 : 80) +
+    (preferences.value.dateFormat === 'full' ? 160 : 120) +
     (preferences.value.use24HourTime ? 0 : 28);
   const time = Math.max(
-    72 * fontScale.value,
+    112 * fontScale.value,
     columnWidths.value.time ?? defaultTime * fontScale.value,
   );
   const author = Math.max(90 * fontScale.value, columnWidths.value.author ?? 112 * fontScale.value);
   return {
-    '--history-columns': `${graph}px ${message === null ? `minmax(${minMessage}px, 1fr)` : `${message}px`} ${time}px ${author}px`,
-    '--history-min-width': `${graph + (message ?? minMessage) + time + author + 21}px`,
+    '--history-columns': `${graph}px minmax(min-content, ${message === null ? '1fr' : `${message}px`}) ${hash}px ${time}px ${author}px`,
+    '--commit-message-min-width': `${minMessage}px`,
+    '--history-min-width': `${graph + (message ?? minMessage) + hash + time + author + 21}px`,
   };
 });
 const error = computed(() => resource.value?.error);
@@ -1642,10 +1644,10 @@ onUnmounted(() => {
                                   :content="row.commit.message || '（無 commit 訊息）'"
                                 />
                               </div>
-                              <div class="commit-caption">
-                                <code>{{ row.commit.shortId }}</code>
-                              </div>
                             </div>
+                            <code class="commit-hash" :title="row.commit.oid">{{
+                              row.commit.shortId
+                            }}</code>
                             <time
                               class="commit-time"
                               :datetime="row.commit.date"
@@ -1674,6 +1676,7 @@ onUnmounted(() => {
                               :connector="true"
                               :connector-height="connectorHeight"
                             />
+                            <span class="connector-cell" />
                             <span class="connector-cell" />
                             <span class="connector-cell" />
                             <span class="connector-cell" /></div></template

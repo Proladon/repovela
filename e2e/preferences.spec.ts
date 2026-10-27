@@ -12,7 +12,7 @@ for (const viewport of [
   }, testInfo) => {
     await page.setViewportSize(viewport);
     const fontSize = viewport.width === 1000 ? 20 : 18;
-    const rowHeight = Math.round((44 * fontSize) / 13);
+    const rowHeight = Math.round((28 * fontSize) / 13);
     const connectorHeight = Math.round((18 * fontSize) / 13);
     await page.goto('/?demo');
     await page.getByRole('button', { name: '偏好設定', exact: true }).click();
@@ -92,7 +92,7 @@ for (const viewport of [
     expect((await head.boundingBox())!.height).toBe(rowHeight);
     await expect(head.locator('.graph-svg')).toHaveAttribute('height', String(rowHeight));
     const rowBounds = (await head.boundingBox())!;
-    const captionBounds = (await head.locator('.commit-caption').boundingBox())!;
+    const captionBounds = (await head.locator('.commit-hash').boundingBox())!;
     expect(captionBounds.y + captionBounds.height).toBeLessThanOrEqual(
       rowBounds.y + rowBounds.height,
     );
@@ -101,7 +101,7 @@ for (const viewport of [
     );
     expect(
       await head
-        .locator('.commit-caption code')
+        .locator('.commit-hash')
         .evaluate((element) => getComputedStyle(element).fontFamily),
     ).toContain('Courier New');
     expect(
@@ -168,7 +168,7 @@ for (const viewport of [
     await expect(page.locator('.graph-head-node')).toHaveCount(1);
     expect(await page.locator('.graph-glow').count()).toBeGreaterThan(0);
     await expect(page.locator('.branch-badge.follows-line')).toHaveCount(0);
-    expect((await head.boundingBox())!.height).toBe(52);
+    expect((await head.boundingBox())!.height).toBe(32);
     expect(
       await page.evaluate(
         (key) => JSON.parse(localStorage.getItem(key)!).fontSize,
@@ -177,6 +177,6 @@ for (const viewport of [
     ).toBe(13);
     await page.reload();
     await expect(page.locator('.graph-head-node')).toBeVisible();
-    expect((await head.boundingBox())!.height).toBe(52);
+    expect((await head.boundingBox())!.height).toBe(32);
   });
 }

@@ -30,8 +30,8 @@ describe('Git 圖譜節點連線', () => {
     const graph = mount(Graph, {
       props: { cells: [cell('commit')], lanes: 0, connector: false },
     });
-    expect(graph.get('path').attributes('d')).toBe('M18 26 V52');
-    expect(graph.get('circle').attributes('cy')).toBe('26');
+    expect(graph.get('path').attributes('d')).toBe('M18 16 V32');
+    expect(graph.get('circle').attributes('cy')).toBe('16');
   });
 
   it.each(['empty', 'horizontal', 'mergeRight', 'mergeLeft', 'teeUp'])(
@@ -45,8 +45,8 @@ describe('Git 圖譜節點連線', () => {
           connector: false,
         },
       });
-      expect(graph.findAll('path')[2].attributes('d')).toBe('M38 26 V52');
-      expect(graph.findAll('path')[0].attributes('d')).toBe('M18 0 V52');
+      expect(graph.findAll('path')[2].attributes('d')).toBe('M38 16 V32');
+      expect(graph.findAll('path')[0].attributes('d')).toBe('M18 0 V32');
     },
   );
 
@@ -61,7 +61,7 @@ describe('Git 圖譜節點連線', () => {
           connector: false,
         },
       });
-      expect(graph.get('path').attributes('d')).toBe('M18 0 V52');
+      expect(graph.get('path').attributes('d')).toBe('M18 0 V32');
     },
   );
 });

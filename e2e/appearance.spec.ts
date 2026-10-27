@@ -35,7 +35,11 @@ for (const viewport of [
       'title',
       `${data.details[head].commit.author} <${data.details[head].commit.email}>`,
     );
+    await author.scrollIntoViewIfNeeded();
     await expect(author).toBeInViewport({ ratio: 1 });
+    await page.locator('.history-scroll').evaluate((element) => {
+      element.scrollLeft = 0;
+    });
     await page.locator('.add-project').click();
     await page.getByRole('dialog').getByRole('button', { name: '加入專案', exact: true }).click();
     await page.getByRole('tab', { name: 'keifu', exact: true }).click();

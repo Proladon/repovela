@@ -2224,7 +2224,7 @@ describe('桌面分頁與瀏覽互動', () => {
     mocked.choose.mockResolvedValue(['/c']);
     render(App);
     await screen.findByRole('heading', { name: '初始版本' });
-    expect(document.querySelector('.commit-row .graph-svg')?.getAttribute('height')).toBe('61');
+    expect(document.querySelector('.commit-row .graph-svg')?.getAttribute('height')).toBe('39');
     expect(mocked.repository).toHaveBeenCalledWith('/a', true, 500);
     await fireEvent.click(screen.getByRole('button', { name: /加入專案 Ctrl O/ }));
     await waitFor(() => expect(mocked.repository).toHaveBeenCalledWith('/c', false, 1000));
@@ -2269,8 +2269,8 @@ describe('桌面分頁與瀏覽互動', () => {
     await screen.findByRole('heading', { name: '初始版本' });
     const history = screen.getByRole('region', { name: 'Git 歷史' });
     const graphs = history.querySelectorAll('.commit-row .graph-svg');
-    expect(graphs[0].querySelector('path')?.getAttribute('d')).toBe('M18 26 V52');
-    expect(graphs[1].querySelector('path')?.getAttribute('d')).toBe('M18 0 V52');
+    expect(graphs[0].querySelector('path')?.getAttribute('d')).toBe('M18 16 V32');
+    expect(graphs[1].querySelector('path')?.getAttribute('d')).toBe('M18 0 V32');
   });
 
   it('首次切換才載入各分頁，之後切換直接顯示快取的歷史', async () => {

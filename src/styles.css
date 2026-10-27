@@ -921,14 +921,19 @@ pre {
   scrollbar-gutter: stable;
 }
 .history-table {
+  /* Share intrinsic label widths across the header, commits, and connectors. */
+  display: grid;
+  grid-template-columns: var(--history-columns);
   min-width: var(--history-min-width);
+  padding: 0 16px 0 5px;
 }
 .history-columns,
 .commit-row,
 .connector-row {
   display: grid;
-  grid-template-columns: var(--history-columns);
-  padding: 0 16px 0 5px;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  padding: 0;
 }
 .history-columns {
   position: sticky;
@@ -955,6 +960,7 @@ pre {
 }
 .history-column-heading + .history-column-heading,
 .commit-text,
+.commit-hash,
 .commit-time,
 .commit-author,
 .connector-cell {
@@ -984,6 +990,7 @@ pre {
   cursor: col-resize !important;
   user-select: none;
 }
+.commit-hash,
 .commit-time,
 .commit-author {
   display: flex;
@@ -1001,10 +1008,7 @@ pre {
   white-space: nowrap;
 }
 .commit-time {
-  justify-content: center;
-  align-items: flex-start;
-  flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: calc(10px * var(--font-scale, 1));
   color: #aeb7c9;
   white-space: nowrap;
@@ -1065,8 +1069,8 @@ pre {
   align-items: stretch;
   text-align: left;
   width: 100%;
-  height: var(--commit-row-height, 52px);
-  min-height: var(--commit-row-height, 52px);
+  height: var(--commit-row-height, 32px);
+  min-height: var(--commit-row-height, 32px);
   border-radius: 0;
   min-width: 0;
   position: relative;
@@ -1100,16 +1104,19 @@ pre {
   filter: drop-shadow(0 0 3px currentColor) drop-shadow(0 0 3px currentColor);
 }
 .commit-text {
-  padding: var(--commit-text-padding, 9px 12px 6px);
-  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  min-width: var(--commit-message-min-width, 120px);
 }
 .commit-subject {
   display: flex;
   align-items: center;
   gap: 5px;
   white-space: nowrap;
-  overflow: hidden;
-  height: calc(18px * var(--font-scale, 1));
+  flex: 1;
+  min-width: min-content;
+  line-height: calc(18px * var(--font-scale, 1));
 }
 .commit-subject > strong {
   font-size: calc(11px * var(--font-scale, 1));
@@ -1125,9 +1132,8 @@ pre {
   font-size: calc(9px * var(--font-scale, 1));
   padding: 2px 5px;
   border-radius: 3px;
-  max-width: 120px;
-  text-overflow: ellipsis;
-  overflow: hidden;
+  white-space: nowrap;
+  line-height: normal;
   flex-shrink: 0;
 }
 .branch-badge {
@@ -1151,22 +1157,16 @@ pre {
 }
 .hide-column-dividers .history-column-heading,
 .hide-column-dividers .commit-text,
+.hide-column-dividers .commit-hash,
 .hide-column-dividers .commit-time,
 .hide-column-dividers .commit-author,
 .hide-column-dividers .connector-cell {
   border-left-color: transparent;
 }
-.commit-caption {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  color: #747e91;
-  font-size: calc(9px * var(--font-scale, 1));
-  margin-top: 5px;
-}
-.commit-caption code {
+.commit-hash {
   font-size: calc(9px * var(--font-scale, 1));
   color: #8792a6;
+  white-space: nowrap;
 }
 .connector-row {
   height: var(--connector-row-height, 18px);
