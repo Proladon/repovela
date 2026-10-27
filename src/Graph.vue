@@ -16,7 +16,7 @@ const props = defineProps<{
   connectorHeight?: number;
 }>();
 const height = computed(() =>
-  props.connector ? (props.connectorHeight ?? 18) : (props.rowHeight ?? 52),
+  props.connector ? (props.connectorHeight ?? 18) : (props.rowHeight ?? 32),
 );
 const mid = computed(() => height.value / 2);
 const width = computed(() => (props.lanes + 1) * 20 + 16);

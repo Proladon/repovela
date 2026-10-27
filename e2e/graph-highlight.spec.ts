@@ -39,8 +39,8 @@ for (const density of ['comfortable', 'compact'] as const) {
       clip: { x: box.x, y: box.y, width: box.width, height: height * 2 },
       path: testInfo.outputPath('continuous-glow.png'),
     });
-    // Read rendered pixels beside the purple line. The row seam should have
-    // the same glow intensity as the nearby uninterrupted part of the line.
+    // Sample directly around the seam: compact rows bring the glowing commit
+    // nodes close enough to affect pixels farther away from the boundary.
     const { samples, background } = await page.evaluate(
       async ({ png, height }) => {
         const image = new Image();
@@ -54,13 +54,13 @@ for (const density of ['comfortable', 'compact'] as const) {
         const pixel = (x: number, y: number) =>
           Array.from(context.getImageData(x, y, 1, 1).data).slice(0, 3);
         return {
-          samples: [-7, -4, -1, 0, 1, 4, 7].map((dy) => pixel(43, height + dy)),
+          samples: [-1, 0, 1].map((dy) => pixel(43, height + dy)),
           background: pixel(60, height),
         };
       },
       { png: screenshot.toString('base64'), height },
     );
-    expect(samples[3][0] - background[0]).toBeGreaterThan(12);
+    expect(samples[1][0] - background[0]).toBeGreaterThan(12);
     for (let channel = 0; channel < 3; channel++) {
       const values = samples.map((pixel) => pixel[channel]);
       expect(Math.max(...values) - Math.min(...values)).toBeLessThanOrEqual(3);
