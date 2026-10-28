@@ -145,6 +145,7 @@ export const api = {
     return call<string>('git_operation', { path, request });
   },
   openProject: (path: string) => call<Project>('open_project', { path }),
+  autoFetch: (path: string) => call<void>('auto_fetch', { path }),
   repository: (path: string, includeRemotes: boolean, limit: number) =>
     call<Snapshot>('read_repository', { path, includeRemotes, limit }),
   commit: (path: string, oid: string) => call<CommitDetail>('read_commit', { path, oid }),

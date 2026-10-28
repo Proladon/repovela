@@ -13,7 +13,7 @@ mod operations;
 mod stash;
 mod trust;
 pub use change_requests::{read_change_requests, ChangeRequestPage, Forge, RequestState};
-pub use operations::{git_operation, GitOperation, GitRequest};
+pub use operations::{auto_fetch, git_operation, GitOperation, GitRequest};
 pub use stash::StashEntry;
 pub use trust::{open_project_for_ui, trust_project, ProjectOpenError};
 
@@ -23,8 +23,9 @@ use git::{BranchInfo, CommitInfo, TagInfo};
 use git2::{Diff, DiffOptions, Oid, Repository, Status};
 use serde::Serialize;
 use std::collections::HashSet;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Component, Path};
+use std::process::{Command, Stdio};
 
 const PATCH_LIMIT: usize = 1024 * 1024;
 const PATCH_LINES_LIMIT: usize = 10_000;
@@ -254,6 +255,46 @@ fn display_path(path: &Path) -> String {
     path
 }
 
+// Git can use its commit-graph to stop a topological walk at the requested limit.
+// libgit2's topological revwalk prepares the entire reachable history first.
+fn limited_history(repo: &Repository, tips: &[Oid], limit: usize) -> Result<Vec<Oid>> {
+    if tips.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut command = Command::new("git");
+    command
+        .current_dir(repo.workdir().unwrap_or_else(|| repo.path()))
+        .args(["rev-list", "--date-order", "--stdin"])
+        .arg(format!("--max-count={limit}"))
+        .env("GIT_NO_REPLACE_OBJECTS", "1")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let mut child = command.spawn()?;
+    let mut stdin = child.stdin.take().context("無法寫入 Git 歷史查詢。")?;
+    let input = tips
+        .iter()
+        .map(|oid| format!("{oid}\n"))
+        .collect::<String>();
+    let writer = std::thread::spawn(move || stdin.write_all(input.as_bytes()));
+    let output = child.wait_with_output()?;
+    writer
+        .join()
+        .map_err(|_| anyhow::anyhow!("Git 歷史查詢失敗。"))??;
+    if !output.status.success() {
+        bail!("Git 歷史查詢失敗。");
+    }
+    String::from_utf8(output.stdout)?
+        .lines()
+        .map(|line| Oid::from_str(line).map_err(Into::into))
+        .collect()
+}
+
 pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Result<Snapshot> {
     let repo = Repository::open(path).context("專案無法開啟，資料夾可能已移動或刪除。")?;
     let limit = limit.clamp(1, 5000);
@@ -265,9 +306,8 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
         .and_then(|h| h.peel_to_commit().ok())
         .map(|c| c.id());
     let head_name = head.as_ref().and_then(|h| h.shorthand()).map(str::to_owned);
-    let mut walk = repo.revwalk()?;
-    walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
     let mut tips = HashSet::new();
+    let mut ordered_tips = Vec::new();
     // Push tips in a stable order so equal-time commits keep a consistent layout.
     for tip in branches
         .iter()
@@ -276,12 +316,25 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
         .chain(head_oid)
     {
         if tips.insert(tip) {
-            walk.push(tip)?;
+            ordered_tips.push(tip);
         }
     }
     let mut commits = Vec::new();
-    for oid in walk.take(limit + 1) {
-        commits.push(CommitInfo::from_git2_commit(&repo.find_commit(oid?)?));
+    let oids = match limited_history(&repo, &ordered_tips, limit + 1) {
+        Ok(oids) => oids,
+        Err(_) => {
+            // Browsing remains available if the Git executable is unavailable.
+            let mut walk = repo.revwalk()?;
+            walk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::TIME)?;
+            for tip in ordered_tips {
+                walk.push(tip)?;
+            }
+            walk.take(limit + 1)
+                .collect::<std::result::Result<Vec<_>, _>>()?
+        }
+    };
+    for oid in oids {
+        commits.push(CommitInfo::from_git2_commit(&repo.find_commit(oid)?));
     }
     let has_more = commits.len() > limit;
     commits.truncate(limit);

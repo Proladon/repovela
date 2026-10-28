@@ -131,6 +131,14 @@ async fn list_system_fonts() -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+async fn auto_fetch(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || repovela_core::auto_fetch(&path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))
+}
+
+#[tauri::command]
 async fn git_operation(path: String, request: GitRequest) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || repovela_core::git_operation(&path, request))
         .await
@@ -217,6 +225,7 @@ pub fn run() {
             read_commit,
             read_patch,
             git_operation,
+            auto_fetch,
             terminal::open_terminal,
             terminal::write_terminal,
             terminal::resize_terminal,

@@ -12,6 +12,7 @@ vi.mock('./WindowTitlebar.vue', () => ({ default: { render: () => null } }));
 
 const mocked = vi.hoisted(() => ({
   operate: vi.fn(),
+  autoFetch: vi.fn(),
   repository: vi.fn(),
   commit: vi.fn(),
   patch: vi.fn(),
@@ -34,6 +35,7 @@ vi.mock('./api', () => ({
   openRepositoryWebsite: mocked.website,
   api: {
     operate: mocked.operate,
+    autoFetch: mocked.autoFetch,
     repository: mocked.repository,
     commit: mocked.commit,
     patch: mocked.patch,
@@ -135,6 +137,7 @@ beforeEach(() => {
     defaultBranch: 'main',
   });
   mocked.operate.mockResolvedValue('ok');
+  mocked.autoFetch.mockResolvedValue(undefined);
   mocked.repository.mockImplementation(async (path: string) => snapshot(path));
   mocked.commit.mockImplementation(async (_path: string, oid: string) => detail(oid));
   mocked.patch.mockResolvedValue({
@@ -157,6 +160,86 @@ afterEach(() => {
 });
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('先顯示本機歷史，背景 Fetch 後更新對應分頁', async () => {
+    saveProjects();
+    let finish!: () => void;
+    mocked.autoFetch.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    let fetched = false;
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      head: fetched && path === '/a' ? 'updated' : 'main',
+      remotes: path === '/a' ? [{ name: 'origin', url: 'https://example.com/a.git' }] : [],
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(mocked.autoFetch).toHaveBeenCalledWith('/a');
+    expect(mocked.repository).toHaveBeenCalledTimes(1);
+    await fireEvent.click(screen.getByRole('tab', { name: /專案 B/ }));
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    fetched = true;
+    finish();
+    await waitFor(() =>
+      expect(mocked.repository.mock.calls.filter(([path]) => path === '/a')).toHaveLength(2),
+    );
+    expect(mocked.autoFetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: '加入專案管理' })).toBeTruthy();
+  });
+
+  it('背景 Fetch 失敗時保留本機歷史並提示', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      remotes: [{ name: 'origin', url: 'https://example.com/a.git' }],
+    }));
+    mocked.autoFetch.mockRejectedValue(new Error('無法連線'));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await screen.findByText(/自動 Fetch 失敗.*無法連線/);
+    expect(screen.getByRole('heading', { name: '初始版本' })).toBeTruthy();
+    expect(mocked.autoFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('Fetch 完成時，較早開始的重新讀取不能覆蓋新資料', async () => {
+    saveProjects();
+    let finishFetch!: () => void;
+    let finishOldRead!: (value: Snapshot) => void;
+    mocked.autoFetch.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          finishFetch = resolve;
+        }),
+    );
+    const withRemote = () => ({
+      ...snapshot('/a'),
+      remotes: [{ name: 'origin', url: 'https://example.com/a.git' }],
+    });
+    mocked.repository
+      .mockImplementationOnce(async () => withRemote())
+      .mockImplementationOnce(
+        () =>
+          new Promise<Snapshot>((resolve) => {
+            finishOldRead = resolve;
+          }),
+      )
+      .mockImplementationOnce(async () => {
+        const data = withRemote();
+        data.rows[0].commit = { ...data.rows[0].commit!, message: '更新後的歷史' };
+        return data;
+      });
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '重新整理' }));
+    finishFetch();
+    await waitFor(() => expect(mocked.repository).toHaveBeenCalledTimes(3));
+    finishOldRead(withRemote());
+    await flushPromises();
+    expect(screen.getByText('更新後的歷史')).toBeTruthy();
+  });
   it('偏好設定即時套用 toast 位置、保存秒數、可預覽兩種類型及重設', async () => {
     const view = render(App);
     await fireEvent.click(screen.getByRole('button', { name: '偏好設定' }));

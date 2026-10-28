@@ -175,6 +175,10 @@ const dispatch = (action: Action) => {
       const remaining = new Map(resources.value);
       remaining.delete(previousTab.path);
       resources.value = remaining;
+      autoFetches.delete(previousTab.path);
+      fetchingPaths.value = new Set(
+        [...fetchingPaths.value].filter((path) => path !== previousTab.path),
+      );
       requestPaths.value = requestPaths.value.filter((p) => p !== previousTab.path);
       terminalPaths.value = terminalPaths.value.filter((path) => path !== previousTab.path);
       visibleTerminalPaths.value = visibleTerminalPaths.value.filter(
@@ -191,6 +195,8 @@ interface RepositoryResource {
   loading: boolean;
 }
 const resources = shallowRef(new Map<string, RepositoryResource>());
+const autoFetches = new Map<string, object>();
+const fetchingPaths = shallowRef(new Set<string>());
 let disposed = false;
 const refresh = ref(0);
 const projectSearch = ref('');
@@ -532,12 +538,12 @@ watch(
   { immediate: true },
 );
 
-function loadRepository(force = false, currentTab = tab.value) {
+function loadRepository(force = false, currentTab = tab.value, supersede = false) {
   if (!currentTab) return;
   const requestKey = JSON.stringify([currentTab.path, currentTab.remotes, currentTab.limit]);
   const stored = resources.value.get(currentTab.path);
   const cached = stored?.key === requestKey ? stored : undefined;
-  if (cached && (!force || cached.loading)) return;
+  if (cached && (!force || (cached.loading && !supersede))) return;
   const request: RepositoryResource = {
     key: requestKey,
     data: cached?.data,
@@ -551,10 +557,35 @@ function loadRepository(force = false, currentTab = tab.value) {
   api
     .repository(currentTab.path, currentTab.remotes, currentTab.limit)
     .then((data) => {
-      if (isCurrent()) store({ key: request.key, data, loading: false });
+      if (isCurrent()) {
+        store({ key: request.key, data, loading: false });
+        if (native && data.remotes?.length && !autoFetches.has(currentTab.path)) {
+          const token = {};
+          autoFetches.set(currentTab.path, token);
+          fetchingPaths.value = new Set(fetchingPaths.value).add(currentTab.path);
+          void api
+            .autoFetch(currentTab.path)
+            .catch((error) => {
+              if (!disposed && autoFetches.get(currentTab.path) === token)
+                notifyError(`${data.project.name}：自動 Fetch 失敗：${String(error)}`);
+            })
+            .finally(() => {
+              if (disposed || autoFetches.get(currentTab.path) !== token) return;
+              fetchingPaths.value = new Set(
+                [...fetchingPaths.value].filter((path) => path !== currentTab.path),
+              );
+              const latest = session.value.tabs.find((item) => item.path === currentTab.path);
+              if (latest) {
+                refresh.value++;
+                loadRepository(true, latest, true);
+              }
+            });
+        }
+      }
     })
     .catch((err) => {
-      if (isCurrent()) store({ key: request.key, error: String(err), loading: false });
+      if (isCurrent())
+        store({ key: request.key, data: cached?.data, error: String(err), loading: false });
     });
 }
 function reloadRepository() {
@@ -1491,6 +1522,7 @@ onUnmounted(() => {
           </div>
           <div id="git-operation-status" class="git-operation-status" />
           <div class="repo-meta" v-show="!requestsOpen">
+            <span v-if="fetchingPaths.has(tab.path)" role="status">正在更新遠端…</span>
             <span
               ><GitBranch :size="12" />{{
                 snapshot?.branches.filter((b) => !b.isRemote).length ?? '—'

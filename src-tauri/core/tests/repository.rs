@@ -1,5 +1,5 @@
 use git2::{Repository, Signature};
-use repovela_core::{open_project, read_commit, read_patch, read_repository};
+use repovela_core::{auto_fetch, open_project, read_commit, read_patch, read_repository};
 use std::path::Path;
 
 fn commit(repo: &Repository, message: &str) -> git2::Oid {
@@ -14,6 +14,68 @@ fn commit(repo: &Repository, message: &str) -> git2::Oid {
     let parents: Vec<_> = parent.iter().collect();
     repo.commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
         .unwrap()
+}
+
+#[test]
+fn auto_fetch_updates_remote_history_without_changing_local_head() {
+    let root = tempfile::tempdir().unwrap();
+    let source_path = root.path().join("source");
+    let clone_path = root.path().join("clone");
+    let source = Repository::init(&source_path).unwrap();
+    std::fs::write(source_path.join("file"), "first").unwrap();
+    let first = commit(&source, "first");
+    let cloned = Repository::clone(source_path.to_str().unwrap(), &clone_path).unwrap();
+    let branch = source.head().unwrap().shorthand().unwrap().to_owned();
+    std::fs::write(source_path.join("file"), "second").unwrap();
+    let second = commit(&source, "second");
+    auto_fetch(clone_path.to_str().unwrap()).unwrap();
+    assert_eq!(cloned.head().unwrap().target(), Some(first));
+    assert_eq!(
+        cloned
+            .find_reference(&format!("refs/remotes/origin/{branch}"))
+            .unwrap()
+            .target(),
+        Some(second)
+    );
+    let snapshot = read_repository(clone_path.to_str().unwrap(), true, 500).unwrap();
+    assert!(snapshot.rows.iter().any(|row| row
+        .commit
+        .as_ref()
+        .is_some_and(|c| c.oid == second.to_string())));
+}
+
+#[test]
+fn limited_history_keeps_children_before_parents_with_clock_skew() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repository::init(dir.path()).unwrap();
+    let tree_oid = repo.treebuilder(None).unwrap().write().unwrap();
+    let tree = repo.find_tree(tree_oid).unwrap();
+    let later = git2::Time::new(2_000_000_000, 0);
+    let earlier = git2::Time::new(1_000_000_000, 0);
+    let parent_sig = Signature::new("test", "test@example.com", &later).unwrap();
+    let child_sig = Signature::new("test", "test@example.com", &earlier).unwrap();
+    let parent = repo
+        .commit(Some("HEAD"), &parent_sig, &parent_sig, "parent", &tree, &[])
+        .unwrap();
+    let parent_commit = repo.find_commit(parent).unwrap();
+    let child = repo
+        .commit(
+            Some("HEAD"),
+            &child_sig,
+            &child_sig,
+            "child",
+            &tree,
+            &[&parent_commit],
+        )
+        .unwrap();
+    repo.reference("refs/tags/parent", parent, false, "")
+        .unwrap();
+    let snapshot = read_repository(dir.path().to_str().unwrap(), true, 1).unwrap();
+    assert_eq!(
+        snapshot.rows[0].commit.as_ref().unwrap().oid,
+        child.to_string()
+    );
+    assert!(snapshot.has_more);
 }
 
 #[test]

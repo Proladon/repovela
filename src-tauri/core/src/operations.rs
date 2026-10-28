@@ -8,6 +8,50 @@ use std::sync::Mutex;
 // Serialize writes, including requests from multiple application windows.
 pub(crate) static WRITES: Mutex<()> = Mutex::new(());
 
+/// A non-interactive refresh used when opening a project.
+pub fn auto_fetch(path: &str) -> Result<()> {
+    let _guard = WRITES
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Git 操作鎖定失敗。"))?;
+    let repo = Repository::open(path).context("無法開啟 Git 儲存庫。")?;
+    let root = repo.workdir().context("裸儲存庫不支援自動 Fetch。")?;
+    if repo.remotes()?.is_empty() {
+        return Ok(());
+    }
+    let mut command = Command::new("git");
+    command
+        .current_dir(root)
+        .args([
+            "-c",
+            "credential.interactive=false",
+            "-c",
+            "http.lowSpeedLimit=1",
+            "-c",
+            "http.lowSpeedTime=30",
+            "fetch",
+            "--all",
+            "--no-auto-maintenance",
+        ])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if std::env::var_os("GIT_SSH_COMMAND").is_none() && std::env::var_os("GIT_SSH").is_none() {
+        command.env("GIT_SSH_COMMAND", "ssh -oBatchMode=yes -oConnectTimeout=10");
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x08000000);
+    }
+    let status = command.status().context("無法啟動 Git。")?;
+    if !status.success() {
+        bail!("請檢查網路與遠端認證，或手動執行 Fetch 查看錯誤。");
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum GitOperation {
