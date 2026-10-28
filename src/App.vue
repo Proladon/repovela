@@ -546,7 +546,7 @@ function loadRepository(force = false, currentTab = tab.value, supersede = false
   if (cached && (!force || (cached.loading && !supersede))) return;
   const request: RepositoryResource = {
     key: requestKey,
-    data: cached?.data,
+    data: stored?.data,
     loading: true,
   };
   const store = (value: RepositoryResource) => {
@@ -585,7 +585,7 @@ function loadRepository(force = false, currentTab = tab.value, supersede = false
     })
     .catch((err) => {
       if (isCurrent())
-        store({ key: request.key, data: cached?.data, error: String(err), loading: false });
+        store({ key: request.key, data: request.data, error: String(err), loading: false });
     });
 }
 function reloadRepository() {
@@ -719,23 +719,24 @@ function jumpSearch(e: KeyboardEvent) {
   );
 }
 function rememberScroll(e: Event) {
-  if (tab.value) scrollPositions[tab.value.path] = (e.currentTarget as HTMLDivElement).scrollTop;
-}
-function jumpBranch(oid: string) {
-  if (snapshot.value?.rows.some((r) => r.commit?.oid === oid)) select(oid, true);
-  else notifyInfo('這個分支位於已載入的歷史範圍之外，請先載入更多紀錄。');
-  branchMenu.value = false;
+  const element = e.currentTarget as HTMLDivElement;
+  if (tab.value) scrollPositions[tab.value.path] = element.scrollTop;
+  if (
+    element.scrollHeight > element.clientHeight &&
+    element.scrollTop + element.clientHeight >= element.scrollHeight - 1
+  )
+    loadMore();
 }
 function clickBranch(event: MouseEvent, branch: Branch) {
   clearTimeout(branchClickTimer);
   if (event.detail === 0) {
-    jumpBranch(branch.oid);
+    focusBranch(branch);
     return;
   }
   const path = tab.value?.path;
   // 保留選單直到雙擊判定結束，避免第一次 click 移除第二次點擊的目標。
   branchClickTimer = setTimeout(() => {
-    if (branchMenu.value && tab.value?.path === path) jumpBranch(branch.oid);
+    if (branchMenu.value && tab.value?.path === path) focusBranch(branch);
   }, 500);
 }
 function finishBranchFocus() {
@@ -913,7 +914,7 @@ function openBranchMenu(event: MouseEvent, name: string) {
   if (!branch) return;
   const commit = snapshot.value?.rows.find((row) => row.commit?.oid === branch.oid)?.commit;
   contextMenu.open(event, [
-    { label: '跳至分支紀錄', icon: GitBranch, run: () => jumpBranch(branch.oid) },
+    { label: '跳至分支紀錄', icon: GitBranch, run: () => focusBranch(branch) },
     {
       label: branch.isRemote ? 'Checkout 遠端分支…' : '切換分支',
       icon: ArrowLeftRight,
@@ -1064,7 +1065,16 @@ function openCommitMenu(event: MouseEvent, oid: string) {
   ]);
 }
 function loadMore() {
-  if (tab.value) updateTab({ limit: Math.min(tab.value.limit + 500, 5000) });
+  if (
+    tab.value &&
+    snapshot.value?.hasMore &&
+    !loading.value &&
+    !error.value &&
+    !operating.value &&
+    !pendingBranchFocus.value &&
+    tab.value.limit < 5000
+  )
+    updateTab({ limit: Math.min(tab.value.limit + 500, 5000) });
 }
 async function addPaths(paths: string[]) {
   adding.value = true;
@@ -1545,7 +1555,7 @@ onUnmounted(() => {
               />{{ '顯示遠端分支' }}</label
             >
           </div>
-          <template v-if="error && !requestsOpen"
+          <template v-if="error && !snapshot && !requestsOpen"
             ><div class="main-empty">
               <FolderGit2 :size="38" />
               <h2>{{ '專案暫時無法讀取' }}</h2>
@@ -1719,14 +1729,15 @@ onUnmounted(() => {
                         <GitCommitHorizontal :size="27" />
                         <p>{{ '這個專案還沒有 commit。' }}</p>
                       </div></template
-                    ><template v-if="snapshot.hasMore"
-                      ><button
-                        class="load-more"
-                        :disabled="tab.limit >= 5000 || loading"
-                        @click="loadMore"
-                      >
-                        {{ tab.limit >= 5000 ? '已顯示前 5,000 筆紀錄' : '載入更多紀錄' }}
-                      </button></template
+                    ><template v-if="error"
+                      ><div class="history-status" role="alert">
+                        讀取歷史失敗：{{ error }}
+                        <button class="soft-button" @click="reloadRepository">重新嘗試</button>
+                      </div></template
+                    ><template v-else-if="loading && snapshot.hasMore"
+                      ><div class="history-status" role="status">正在載入更多紀錄…</div></template
+                    ><template v-else-if="snapshot.hasMore && tab.limit >= 5000"
+                      ><div class="history-status">已顯示前 5,000 筆紀錄</div></template
                     >
                   </div>
                 </section>

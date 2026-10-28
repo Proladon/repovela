@@ -1417,6 +1417,86 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(mocked.operate).not.toHaveBeenCalled();
   });
 
+  it('分支清單跳轉會自動載入較舊的歷史', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string, _remote: boolean, limit: number) => ({
+      ...snapshot(path),
+      branches: [{ name: 'old-branch', oid: commits[1].oid, isHead: false, isRemote: false }],
+      rows: snapshot(path).rows.slice(0, limit < 1000 ? 1 : 2),
+      hasMore: limit < 1000,
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '加入專案管理' });
+    await fireEvent.click(document.querySelector('.branch-picker > button')!);
+    await fireEvent.click(
+      within(document.querySelector('.branch-list')!).getByRole('button', { name: 'old-branch' }),
+    );
+    await screen.findByRole('heading', { name: '初始版本' });
+    await waitFor(() => expect(document.activeElement?.id).toBe(`commit-${commits[1].oid}`));
+    expect(mocked.repository).toHaveBeenLastCalledWith('/a', true, 1000);
+  });
+
+  it('捲動至歷史底部時載入更多，載入中不重複請求', async () => {
+    saveProjects();
+    let resolve!: (data: Snapshot) => void;
+    mocked.repository.mockImplementation((path: string, _remote: boolean, limit: number) =>
+      limit === 500
+        ? Promise.resolve({ ...snapshot(path), hasMore: true })
+        : new Promise<Snapshot>((done) => {
+            resolve = done;
+          }),
+    );
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const history = document.querySelector('.history-scroll') as HTMLDivElement;
+    Object.defineProperties(history, {
+      scrollHeight: { value: 3000 },
+      clientHeight: { value: 400 },
+    });
+    history.scrollTop = 2598;
+    await fireEvent.scroll(history);
+    expect(mocked.repository).toHaveBeenCalledTimes(1);
+    history.scrollTop = 2599;
+    await fireEvent.scroll(history);
+    await waitFor(() => expect(mocked.repository).toHaveBeenLastCalledWith('/a', true, 1000));
+    expect(document.querySelector('.history-scroll')).toBe(history);
+    expect(history.scrollTop).toBe(2599);
+    expect(screen.getByRole('region', { name: 'Git 歷史' })).toBeTruthy();
+    expect(screen.queryByText('正在讀取 Git 歷史…')).toBeNull();
+    expect(screen.getByText('正在載入更多紀錄…')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '載入更多紀錄' })).toBeNull();
+    await fireEvent.scroll(history);
+    expect(mocked.repository).toHaveBeenCalledTimes(2);
+    resolve(snapshot('/a'));
+    await screen.findByRole('heading', { name: '初始版本' });
+    expect(screen.queryByRole('button', { name: '載入更多紀錄' })).toBeNull();
+  });
+
+  it('載入更多失敗時保留歷史並可重試', async () => {
+    saveProjects();
+    mocked.repository.mockImplementationOnce(async (path: string) => ({
+      ...snapshot(path),
+      hasMore: true,
+    }));
+    mocked.repository.mockRejectedValueOnce(new Error('read failed'));
+    mocked.repository.mockImplementation(async (path: string) => snapshot(path));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const history = document.querySelector('.history-scroll') as HTMLDivElement;
+    Object.defineProperties(history, {
+      scrollHeight: { value: 1000 },
+      clientHeight: { value: 200 },
+    });
+    history.scrollTop = 800;
+    await fireEvent.scroll(history);
+    await screen.findByText(/讀取歷史失敗：.*read failed/);
+    expect(document.querySelector('.history-scroll')).toBe(history);
+    expect(screen.getByRole('heading', { name: '初始版本' })).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: '重新嘗試' }));
+    await waitFor(() => expect(screen.queryByText(/讀取歷史失敗/)).toBeNull());
+    expect(mocked.repository).toHaveBeenLastCalledWith('/a', true, 1000);
+  });
+
   it('主分支超出歷史上限時停止讀取並提示', async () => {
     saveProjects();
     mocked.repository.mockImplementation(async (path: string) => ({
@@ -2568,7 +2648,13 @@ describe('桌面分頁與瀏覽互動', () => {
     );
     render(App);
     await screen.findByRole('heading', { name: '初始版本' });
-    await fireEvent.click(screen.getByRole('button', { name: '載入更多紀錄' }));
+    const history = document.querySelector('.history-scroll') as HTMLDivElement;
+    Object.defineProperties(history, {
+      scrollHeight: { value: 1000 },
+      clientHeight: { value: 200 },
+    });
+    history.scrollTop = 800;
+    await fireEvent.scroll(history);
     await screen.findByRole('region', { name: 'Git 歷史' });
     expect(mocked.repository).toHaveBeenLastCalledWith('/a', true, 1000);
     await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));

@@ -1171,12 +1171,9 @@ pre {
 .connector-row {
   height: var(--connector-row-height, 18px);
 }
-.load-more {
-  width: calc(100% - 36px);
-  border: 1px solid #323745;
-  margin: 18px;
-  background: #1e222c;
-  padding: 9px;
+.history-status {
+  padding: 18px;
+  text-align: center;
   color: #aaa3bf;
   font-size: calc(11px * var(--font-scale, 1));
 }
