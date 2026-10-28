@@ -424,7 +424,7 @@ const historyColumns = computed(() => [
   {
     key: 'graph' as const,
     label: '圖譜',
-    min: graphWidth.value,
+    min: 36,
     max: Math.max(600, graphWidth.value),
   },
   { key: 'message' as const, label: 'Commit 訊息', min: 120 * fontScale.value, max: 1600 },
@@ -433,7 +433,7 @@ const historyColumns = computed(() => [
   { key: 'author' as const, label: '作者', min: 90 * fontScale.value, max: 480 },
 ]);
 const historyTableStyle = computed(() => {
-  const graph = Math.max(graphWidth.value, columnWidths.value.graph ?? graphWidth.value);
+  const graph = Math.max(36, columnWidths.value.graph ?? Math.min(graphWidth.value, 300));
   const minMessage = 120 * fontScale.value;
   const message =
     columnWidths.value.message === null ? null : Math.max(minMessage, columnWidths.value.message);
@@ -1647,17 +1647,19 @@ onUnmounted(() => {
                             @dblclick="openCommitAction('checkout', row.commit!)"
                             @contextmenu="openCommitMenu($event, row.commit!.oid)"
                           >
-                            <Graph
-                              :cells="row.cells"
-                              :previous-cells="snapshot.rows[i - 1]?.cells"
-                              :highlighted-cells="highlightedGraph[i]"
-                              :previous-glow="graphGlowRows[i - 1]"
-                              :next-glow="graphGlowRows[i + 1]"
-                              :lanes="snapshot.maxLane"
-                              :connector="false"
-                              :is-head="row.isHead && preferences.highlightHead"
-                              :row-height="rowHeight"
-                            />
+                            <div class="graph-cell">
+                              <Graph
+                                :cells="row.cells"
+                                :previous-cells="snapshot.rows[i - 1]?.cells"
+                                :highlighted-cells="highlightedGraph[i]"
+                                :previous-glow="graphGlowRows[i - 1]"
+                                :next-glow="graphGlowRows[i + 1]"
+                                :lanes="snapshot.maxLane"
+                                :connector="false"
+                                :is-head="row.isHead && preferences.highlightHead"
+                                :row-height="rowHeight"
+                              />
+                            </div>
                             <div class="commit-text">
                               <div class="commit-subject">
                                 <template v-if="row.isHead"
@@ -1708,16 +1710,18 @@ onUnmounted(() => {
                           </button></template
                         ><template v-else
                           ><div class="connector-row">
-                            <Graph
-                              :cells="row.cells"
-                              :previous-cells="snapshot.rows[i - 1]?.cells"
-                              :highlighted-cells="highlightedGraph[i]"
-                              :previous-glow="graphGlowRows[i - 1]"
-                              :next-glow="graphGlowRows[i + 1]"
-                              :lanes="snapshot.maxLane"
-                              :connector="true"
-                              :connector-height="connectorHeight"
-                            />
+                            <div class="graph-cell">
+                              <Graph
+                                :cells="row.cells"
+                                :previous-cells="snapshot.rows[i - 1]?.cells"
+                                :highlighted-cells="highlightedGraph[i]"
+                                :previous-glow="graphGlowRows[i - 1]"
+                                :next-glow="graphGlowRows[i + 1]"
+                                :lanes="snapshot.maxLane"
+                                :connector="true"
+                                :connector-height="connectorHeight"
+                              />
+                            </div>
                             <span class="connector-cell" />
                             <span class="connector-cell" />
                             <span class="connector-cell" />

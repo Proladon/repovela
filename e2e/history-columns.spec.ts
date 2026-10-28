@@ -82,6 +82,16 @@ for (const width of [1360, 1000]) {
     expect((await heading('作者').boundingBox())!.width).toBe(90);
     await checkAlignment();
     await expect(page.locator('.graph-head-node')).toHaveCount(1);
+
+    const graphHandle = page.getByRole('separator', { name: '調整圖譜欄寬' });
+    await graphHandle.focus();
+    for (let i = 0; i < 20; i++) await graphHandle.press('ArrowLeft');
+    expect((await heading('圖譜').boundingBox())!.width).toBe(36);
+    const graphCell = page.locator('.commit-row .graph-cell').first();
+    expect(await graphCell.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await graphCell.evaluate((el) => getComputedStyle(el).overflowX)).toBe('hidden');
+    await checkAlignment();
+    await graphHandle.press('Home');
   });
 }
 

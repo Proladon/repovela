@@ -114,6 +114,8 @@ pub fn build_graph(
             head_oid = Some(branch.tip_oid);
         }
     }
+    // The explicit HEAD also covers detached checkouts.
+    head_oid = head_commit_oid.or(head_oid);
 
     let mut oid_to_tags: HashMap<Oid, Vec<String>> = HashMap::new();
     for tag in tags {
@@ -153,7 +155,9 @@ pub fn build_graph(
         .collect();
 
     // Lane tracking: OID tracked by each lane
-    let mut lanes: Vec<Option<Oid>> = Vec::new();
+    // Reserve the leftmost lane for HEAD even when newer commits are listed first.
+    let reserved_head = head_oid.filter(|oid| oid_to_row.contains_key(oid));
+    let mut lanes: Vec<Option<Oid>> = reserved_head.into_iter().map(Some).collect();
     let mut nodes: Vec<GraphNode> = Vec::new();
     let mut max_lane: usize = 0;
 
@@ -163,6 +167,11 @@ pub fn build_graph(
     let mut oid_color_index: HashMap<Oid, usize> = HashMap::new();
     // Lane -> color index mapping (keep colors during forks)
     let mut lane_color_index: HashMap<usize, usize> = HashMap::new();
+    if let Some(oid) = reserved_head {
+        let color = color_assigner.assign_main_color(0);
+        oid_color_index.insert(oid, color);
+        lane_color_index.insert(0, color);
+    }
 
     for commit in commits {
         // Start processing a new row
@@ -259,7 +268,7 @@ pub fn build_graph(
         let commit_color_index = if commit_lane_opt.is_some() {
             // Continue existing branch
             color_assigner.continue_lane(lane)
-        } else if nodes.is_empty() {
+        } else if nodes.is_empty() && reserved_head.is_none() {
             // First commit (main branch) - reserve color so others cannot use it
             color_assigner.assign_main_color(lane)
         } else {
@@ -455,6 +464,25 @@ pub fn build_graph(
                     lanes[ending_lane] = None;
                     color_assigner.release_lane(ending_lane);
                     lane_color_index.remove(&ending_lane);
+                }
+            }
+        }
+    }
+
+    // The reserved lane is only a placeholder until a real edge reaches it.
+    // Remove its initial pipes so they do not imply a connection above that edge.
+    if reserved_head.is_some() {
+        for node in &mut nodes {
+            match node.cells.first_mut() {
+                Some(cell @ CellType::Pipe(_)) => *cell = CellType::Empty,
+                Some(CellType::Empty) | None => {}
+                Some(cell) => {
+                    if uncommitted_count.is_none() {
+                        if let CellType::TeeRight(color) = *cell {
+                            *cell = CellType::BranchRight(color);
+                        }
+                    }
+                    break;
                 }
             }
         }
@@ -783,6 +811,49 @@ mod tests {
             full_message: "msg".to_string(),
             parent_oids: Vec::new(),
         }
+    }
+
+    #[test]
+    fn head_uses_leftmost_lane_with_newer_branches_and_no_phantom_line() {
+        let oid = |n: usize| Oid::from_str(&format!("{n:040x}")).unwrap();
+        let head = oid(1);
+        let base = oid(2);
+        let mut commits: Vec<_> = (3..15)
+            .map(|n| {
+                let mut commit = make_commit(oid(n));
+                commit.parent_oids.push(head);
+                commit
+            })
+            .collect();
+        let mut head_commit = make_commit(head);
+        head_commit.parent_oids.push(base);
+        commits.extend([head_commit, make_commit(base)]);
+
+        let layout = build_graph(&commits, &[], &[], None, Some(head));
+        let head_node = layout.nodes.iter().find(|node| node.is_head).unwrap();
+        assert_eq!(head_node.lane, 0);
+        assert!(layout.max_lane > 1);
+        assert_eq!(layout.nodes[0].cells[0], CellType::Empty);
+        let first_edge = layout
+            .nodes
+            .iter()
+            .find_map(|node| node.cells.first().filter(|cell| **cell != CellType::Empty));
+        assert!(matches!(first_edge, Some(CellType::BranchRight(_))));
+        let base_node = layout
+            .nodes
+            .iter()
+            .find(|node| node.commit.as_ref().is_some_and(|c| c.oid == base))
+            .unwrap();
+        assert_eq!(base_node.lane, 0);
+    }
+
+    #[test]
+    fn missing_head_does_not_reserve_an_empty_lane() {
+        let head = Oid::from_str("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap();
+        let other = Oid::from_str("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap();
+        let layout = build_graph(&[make_commit(other)], &[], &[], None, Some(head));
+        assert_eq!(layout.nodes[0].lane, 0);
+        assert_eq!(layout.max_lane, 0);
     }
 
     #[test]

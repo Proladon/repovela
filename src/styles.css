@@ -1092,6 +1092,10 @@ pre {
 .commit-row.dimmed {
   opacity: 0.32;
 }
+.graph-cell {
+  min-width: 0;
+  overflow: hidden;
+}
 .graph-svg {
   display: block;
   flex-shrink: 0;
