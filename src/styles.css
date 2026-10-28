@@ -1112,6 +1112,7 @@ pre {
   align-items: center;
   padding: 0 12px;
   min-width: var(--commit-message-min-width, 120px);
+  overflow: clip;
 }
 .commit-subject {
   display: flex;

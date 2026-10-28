@@ -447,7 +447,7 @@ const historyTableStyle = computed(() => {
   );
   const author = Math.max(90 * fontScale.value, columnWidths.value.author ?? 112 * fontScale.value);
   return {
-    '--history-columns': `${graph}px minmax(min-content, ${message === null ? '1fr' : `${message}px`}) ${hash}px ${time}px ${author}px`,
+    '--history-columns': `${graph}px ${message === null ? 'minmax(min-content, 1fr)' : `${message}px`} ${hash}px ${time}px ${author}px`,
     '--commit-message-min-width': `${minMessage}px`,
     '--history-min-width': `${graph + (message ?? minMessage) + hash + time + author + 21}px`,
   };

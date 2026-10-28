@@ -150,6 +150,29 @@ for (const width of [1360, 1000]) {
     await checkLabels();
     await page.getByRole('button', { name: '關閉詳細資訊' }).click();
     await checkLabels();
+    const messageHandle = page.getByRole('separator', { name: '調整Commit 訊息欄寬' });
+    await messageHandle.scrollIntoViewIfNeeded();
+    const handleBounds = (await messageHandle.boundingBox())!;
+    await page.mouse.move(handleBounds.x + 4, handleBounds.y + 16);
+    await page.mouse.down();
+    await page.mouse.move(handleBounds.x - width * 2, handleBounds.y + 16);
+    await page.mouse.up();
+    const messageHeading = page
+      .locator('.history-column-heading')
+      .filter({ hasText: 'Commit 訊息' });
+    expect((await messageHeading.boundingBox())!.width).toBe(120);
+    const messageCell = row.locator('.commit-text');
+    expect((await messageCell.boundingBox())!.width).toBe(120);
+    expect(await messageCell.evaluate((el) => getComputedStyle(el).overflowX)).toBe('clip');
+    expect(await messageCell.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    const hash = (await row.locator('.commit-hash').boundingBox())!;
+    expect(hash.x).toBeCloseTo((await messageCell.boundingBox())!.x + 120, 0);
+    await expect(row.locator('.branch-badge, .tag-badge')).toHaveText([
+      ...head.branches,
+      ...head.tags,
+    ]);
+    await messageHandle.dblclick();
+    await checkLabels();
     await page.locator('.history-scroll').evaluate((el) => {
       el.scrollLeft = 0;
     });
