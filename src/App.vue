@@ -40,7 +40,7 @@ import {
   SquareX,
   X,
 } from 'lucide-vue-next';
-import { api, chooseProjects, demo, native, openRepositoryWebsite } from './api';
+import { api, chooseProjects, demo, native, openProjectFolder, openRepositoryWebsite } from './api';
 import { repositoryWebLinks } from './repositoryUrl';
 import Detail from './Detail.vue';
 import MarkdownContent from './MarkdownContent.vue';
@@ -1069,6 +1069,21 @@ function openCommitAction(operation: CommitOperation, commit: Commit) {
     expectedBranch: currentBranch.value ? `refs/heads/${currentBranch.value.name}` : 'HEAD',
   };
 }
+async function copyProjectPath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path);
+    notifySuccess('已複製專案路徑。');
+  } catch (error) {
+    notifyError(`無法複製專案路徑：${String(error)}`);
+  }
+}
+async function showProjectFolder(path: string) {
+  try {
+    await openProjectFolder(path);
+  } catch (error) {
+    notifyError(`無法開啟專案資料夾：${String(error)}`);
+  }
+}
 async function copyCommitText(value: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -1522,7 +1537,25 @@ onUnmounted(() => {
               <FolderGit2 :size="20" />
               <div>
                 <h1>{{ project.name }}</h1>
-                <span :title="project.path">{{ project.path }}</span>
+                <div class="repo-path">
+                  <button
+                    class="repo-path-copy"
+                    :title="`複製路徑：${project.path}`"
+                    aria-label="複製專案路徑"
+                    @click="copyProjectPath(project.path)"
+                  >
+                    {{ project.path }}
+                  </button>
+                  <button
+                    class="repo-path-open icon-button"
+                    :disabled="!native || demo"
+                    :title="native && !demo ? '開啟專案資料夾' : '請使用桌面版開啟資料夾'"
+                    aria-label="開啟專案資料夾"
+                    @click="showProjectFolder(project.path)"
+                  >
+                    <FolderOpen :size="14" />
+                  </button>
+                </div>
               </div>
             </div>
             <div class="toolbar-actions">

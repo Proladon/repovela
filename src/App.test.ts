@@ -21,6 +21,7 @@ const mocked = vi.hoisted(() => ({
   trust: vi.fn(),
   fonts: vi.fn(),
   website: vi.fn(),
+  folder: vi.fn(),
   requests: vi.fn(),
   requestDetail: vi.fn(),
   requestChanges: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('./api', () => ({
   chooseProjects: mocked.choose,
   listSystemFonts: mocked.fonts,
   openRepositoryWebsite: mocked.website,
+  openProjectFolder: mocked.folder,
   api: {
     operate: mocked.operate,
     autoFetch: mocked.autoFetch,
@@ -131,6 +133,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocked.fonts.mockResolvedValue(['Arial', '自訂安裝字體']);
   mocked.website.mockResolvedValue(undefined);
+  mocked.folder.mockResolvedValue(undefined);
   mocked.requests.mockResolvedValue({ items: [], nextCursor: null });
   mocked.requestBranches.mockResolvedValue({
     branches: ['main', 'feature'],
@@ -744,6 +747,37 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(
       (within(dialog).getByRole('button', { name: '套用 Stash' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+  });
+  it('複製目前專案路徑並開啟資料夾，切換分頁後使用新路徑', async () => {
+    saveProjects();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '複製專案路徑' }));
+    expect(writeText).toHaveBeenLastCalledWith('/a');
+    await screen.findByText('已複製專案路徑。');
+    await fireEvent.click(screen.getByRole('button', { name: '開啟專案資料夾' }));
+    expect(mocked.folder).toHaveBeenLastCalledWith('/a');
+    await fireEvent.click(screen.getByRole('tab', { name: '專案 B' }));
+    await fireEvent.click(screen.getByRole('button', { name: '複製專案路徑' }));
+    await fireEvent.click(screen.getByRole('button', { name: '開啟專案資料夾' }));
+    expect(writeText).toHaveBeenLastCalledWith('/b');
+    expect(mocked.folder).toHaveBeenLastCalledWith('/b');
+  });
+  it('複製路徑或開啟資料夾失敗時顯示錯誤', async () => {
+    saveProjects();
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: vi.fn().mockRejectedValue(new Error('剪貼簿失敗')) },
+    });
+    mocked.folder.mockRejectedValue(new Error('資料夾不存在'));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.click(screen.getByRole('button', { name: '複製專案路徑' }));
+    await screen.findByText(/無法複製專案路徑：.*剪貼簿失敗/);
+    await fireEvent.click(screen.getByRole('button', { name: '開啟專案資料夾' }));
+    await screen.findByText(/無法開啟專案資料夾：.*資料夾不存在/);
   });
   it('repo 網站按鈕開啟 SSH 遠端對應網站，切換專案使用各自的網址', async () => {
     saveProjects();

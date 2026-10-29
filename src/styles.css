@@ -556,7 +556,18 @@ pre {
 .repo-title > div {
   min-width: 0;
 }
-.repo-title > div > span {
+.repo-path {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.repo-path-copy {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
   font-size: calc(10px * var(--font-scale, 1));
   color: #7b8395;
   display: block;
@@ -564,6 +575,14 @@ pre {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 490px;
+}
+.repo-path-copy:hover {
+  color: #aea2d6;
+  text-decoration: underline;
+}
+.repo-path-open {
+  flex-shrink: 0;
+  padding: 2px;
 }
 .toolbar-actions {
   display: flex;
@@ -2059,7 +2078,7 @@ pre {
   .session-label {
     display: none;
   }
-  .repo-title > div > span {
+  .repo-path-copy {
     max-width: 290px;
   }
   .commit-subject > strong {

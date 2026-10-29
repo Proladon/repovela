@@ -24,6 +24,10 @@ export const demo =
 export function listSystemFonts(): Promise<string[]> {
   return native ? invoke<string[]>('list_system_fonts') : Promise.resolve([]);
 }
+export function openProjectFolder(path: string): Promise<void> {
+  if (!native) return Promise.reject(new Error('開啟本機資料夾請使用桌面版。'));
+  return invoke<void>('open_project_folder', { path });
+}
 export async function openRepositoryWebsite(url: string): Promise<void> {
   if (!/^https?:\/\//.test(url)) throw new Error('Repo 網址必須使用 HTTP 或 HTTPS。');
   if (native) await openUrl(url);

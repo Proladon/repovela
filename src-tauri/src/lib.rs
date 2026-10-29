@@ -1,5 +1,6 @@
 use repovela_core::{CommitDetail, FilePatch, GitRequest, Project, ProjectOpenError, Snapshot};
 use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
 mod terminal;
 
 #[tauri::command]
@@ -154,6 +155,17 @@ async fn open_project(path: String) -> Result<Project, ProjectOpenError> {
 }
 
 #[tauri::command]
+async fn open_project_folder(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let project = tauri::async_runtime::spawn_blocking(move || repovela_core::open_project(&path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("{e:#}"))?;
+    app.opener()
+        .open_path(project.path, None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn trust_project(path: String) -> Result<Project, String> {
     tauri::async_runtime::spawn_blocking(move || repovela_core::trust_project(&path))
         .await
@@ -214,6 +226,7 @@ pub fn run() {
             prepare_update_install,
             list_system_fonts,
             open_project,
+            open_project_folder,
             trust_project,
             read_repository,
             read_change_requests,
