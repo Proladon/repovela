@@ -571,6 +571,38 @@ fn tags_branches_and_checkout_use_selected_commit_and_validate_stale_requests() 
 }
 
 #[test]
+fn remote_checkout_fast_forwards_existing_branch_and_rejects_unsafe_updates() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = setup(dir.path());
+    let base = write_save(dir.path(), "file.txt", "base\n", "base");
+    let latest = write_save(dir.path(), "file.txt", "latest\n", "latest");
+    repo.remote("origin", "unused-offline-remote").unwrap();
+    repo.reference("refs/remotes/origin/release", latest, true, "fixture")
+        .unwrap();
+    repo.branch("release", &repo.find_commit(base).unwrap(), false)
+        .unwrap();
+    let request = json!({"operation":"checkout", "oid":latest.to_string(), "remoteBranch":"origin/release", "branch":"release", "expectedLocalOid":base.to_string()});
+    std::fs::write(dir.path().join("file.txt"), "dirty\n").unwrap();
+    assert!(run(dir.path(), request.clone()).is_err());
+    assert_eq!(head(dir.path()), latest);
+    std::fs::write(dir.path().join("file.txt"), "latest\n").unwrap();
+    let mut stale = request.clone();
+    stale["expectedLocalOid"] = json!(latest.to_string());
+    assert!(run(dir.path(), stale).is_err());
+    run(dir.path(), request).unwrap();
+    assert_eq!(repo.head().unwrap().shorthand(), Some("release"));
+    assert_eq!(head(dir.path()), latest);
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "latest\n"
+    );
+    repo.reference("refs/remotes/origin/release", base, true, "fixture")
+        .unwrap();
+    assert!(run(dir.path(), json!({"operation":"checkout", "oid":base.to_string(), "remoteBranch":"origin/release", "branch":"release", "expectedLocalOid":latest.to_string()})).is_err());
+    assert_eq!(head(dir.path()), latest);
+}
+
+#[test]
 fn remote_checkout_creates_tracking_branches_and_merges_latest_into_master() {
     let dir = tempfile::tempdir().unwrap();
     let repo = setup(dir.path());

@@ -485,8 +485,40 @@ pub fn git_operation(path: &str, request: GitRequest) -> Result<String> {
                 if reference.get().peel_to_commit()?.id() != oid {
                     bail!("此遠端分支已不在目標 commit，請重新整理。");
                 }
-                if repo.find_branch(branch, BranchType::Local).is_ok() {
-                    bail!("此本機分支已存在，請切換既有分支或使用其他名稱。");
+                if let Ok(local) = repo.find_branch(branch, BranchType::Local) {
+                    let old = local.get().peel_to_commit()?.id();
+                    if request.expected_local_oid.as_deref() != Some(old.to_string().as_str()) {
+                        bail!("本機分支已變更，請重新整理。");
+                    }
+                    if let Ok(upstream) = local.upstream() {
+                        if upstream.name()? != Some(remote) {
+                            bail!("同名本機分支追蹤其他遠端分支，請先確認其追蹤設定。");
+                        }
+                    }
+                    if old != oid {
+                        if !repo.graph_descendant_of(oid, old)? {
+                            bail!("無法快轉同步：本機分支有獨有提交或歷史已分歧，請先處理合併或 Rebase。");
+                        }
+                        require_clean_worktree(&repo)?;
+                    }
+                    if !local.is_head() {
+                        run(&repo, &["switch".into(), branch.into()])?;
+                    }
+                    if old != oid {
+                        return run(
+                            &repo,
+                            &[
+                                "merge".into(),
+                                "--ff-only".into(),
+                                "--no-edit".into(),
+                                oid.to_string(),
+                            ],
+                        );
+                    }
+                    return Ok("已切換至本機分支。".into());
+                }
+                if request.expected_local_oid.is_some() {
+                    bail!("本機分支已變更，請重新整理。");
                 }
                 args.extend(["switch", "--create", branch, "--track"].map(str::to_owned));
                 args.push(format!("refs/remotes/{remote}"));

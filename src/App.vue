@@ -115,7 +115,6 @@ const commitAction = shallowRef<{
   commit: Commit;
   expectedHead: string;
   expectedBranch: string;
-  checkoutRemote?: string;
 } | null>(null);
 const syncBranchAction = shallowRef<{
   path: string;
@@ -912,21 +911,17 @@ function openBranchMenu(event: MouseEvent, name: string) {
   clearTimeout(branchClickTimer);
   const branch: Branch | undefined = snapshot.value?.branches.find((b) => b.name === name);
   if (!branch) return;
-  const commit = snapshot.value?.rows.find((row) => row.commit?.oid === branch.oid)?.commit;
   contextMenu.open(event, [
     { label: '跳至分支紀錄', icon: GitBranch, run: () => focusBranch(branch) },
     {
-      label: branch.isRemote ? 'Checkout 遠端分支…' : '切換分支',
+      label: branch.isRemote ? 'Checkout 遠端分支' : '切換分支',
       icon: ArrowLeftRight,
       disabled:
         !native ||
         operating.value ||
         loading.value ||
         branch.isHead ||
-        (snapshot.value?.operationState ?? 'clean') !== 'clean' ||
-        (branch.isRemote && !commit),
-      disabledReason:
-        branch.isRemote && !commit ? '請先載入更多紀錄，再 Checkout 此遠端分支。' : undefined,
+        (snapshot.value?.operationState ?? 'clean') !== 'clean',
       run: () => checkoutBranch(branch.name),
     },
     {
@@ -956,14 +951,42 @@ function checkoutBranch(name: string) {
     return;
   branchMenu.value = false;
   if (branch.isRemote) {
-    const commit = data?.rows.find((row) => row.commit?.oid === branch.oid)?.commit;
-    if (commit) openCommitAction('checkout', commit, branch.name);
-    else notifyInfo('請先載入更多紀錄，再 Checkout 此遠端分支。');
-    return;
+    if (!data?.headOid || !branch.localName) return;
+    const local = data.branches.find((b) => !b.isRemote && b.name === branch.localName);
+    return operate({
+      operation: 'checkout',
+      oid: branch.oid,
+      branch: branch.localName,
+      remoteBranch: branch.name,
+      ...(local ? { expectedLocalOid: local.oid } : {}),
+      expectedHead: data.headOid,
+      expectedBranch: currentBranch.value ? `refs/heads/${currentBranch.value.name}` : 'HEAD',
+    });
   }
   return operate({ operation: 'switchBranch', branch: branch.name });
 }
-function openCommitAction(operation: CommitOperation, commit: Commit, checkoutRemote?: string) {
+function checkoutCommit(commit: Commit) {
+  const data = snapshot.value;
+  if (
+    !data?.headOid ||
+    !native ||
+    operating.value ||
+    loading.value ||
+    (data.operationState ?? 'clean') !== 'clean'
+  )
+    return;
+  const locals = data.branches.filter((b) => !b.isRemote && b.oid === commit.oid);
+  const remotes = data.branches.filter((b) => b.isRemote && b.localName && b.oid === commit.oid);
+  if (!locals.length && remotes.length === 1) return checkoutBranch(remotes[0].name);
+  return operate({
+    operation: 'checkout',
+    oid: commit.oid,
+    expectedHead: data.headOid,
+    ...(locals.length === 1 ? { branch: locals[0].name } : {}),
+    expectedBranch: currentBranch.value ? `refs/heads/${currentBranch.value.name}` : 'HEAD',
+  });
+}
+function openCommitAction(operation: CommitOperation, commit: Commit) {
   const data = snapshot.value;
   if (
     !tab.value ||
@@ -979,7 +1002,6 @@ function openCommitAction(operation: CommitOperation, commit: Commit, checkoutRe
     operation,
     commit,
     expectedHead: data.headOid,
-    checkoutRemote,
     expectedBranch: currentBranch.value ? `refs/heads/${currentBranch.value.name}` : 'HEAD',
   };
 }
@@ -1011,11 +1033,11 @@ function openCommitMenu(event: MouseEvent, oid: string) {
       run: () => openCommitAction('createBranch', commit),
     },
     {
-      label: 'Checkout…',
+      label: 'Checkout',
       icon: ArrowLeftRight,
       disabled,
       separatorBefore: true,
-      run: () => openCommitAction('checkout', commit),
+      run: () => checkoutCommit(commit),
     },
     {
       label: 'Cherry-pick…',
@@ -1644,7 +1666,7 @@ onUnmounted(() => {
                             :class="`commit-row ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
                             @click="() => select(row.commit!.oid)"
                             title="雙擊 Checkout"
-                            @dblclick="openCommitAction('checkout', row.commit!)"
+                            @dblclick="checkoutCommit(row.commit!)"
                             @contextmenu="openCommitMenu($event, row.commit!.oid)"
                           >
                             <div class="graph-cell">
@@ -2014,7 +2036,6 @@ onUnmounted(() => {
       :snapshot="snapshot"
       :expected-head="commitAction.expectedHead"
       :expected-branch="commitAction.expectedBranch"
-      :checkout-remote="commitAction.checkoutRemote"
       :busy="operating || loading"
       :operate="operate"
       @close="commitAction = null"

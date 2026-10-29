@@ -88,7 +88,6 @@ test('專案拖拉排序與重開還原；雙擊 commit、分支標籤與分支�
     await page.getByRole('button', { name: '釘選專案', exact: true }).click();
   };
   const finishCheckout = async () => {
-    await page.getByRole('button', { name: '執行 Checkout', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('alert')).toContainText('Git 操作已完成');
     await expect(page.getByRole('button', { name: 'Fetch', exact: true })).toBeEnabled();
@@ -151,16 +150,11 @@ test('專案拖拉排序與重開還原；雙擊 commit、分支標籤與分支�
       .locator('.branch-list')
       .getByRole('button', { name: 'origin/release 遠端', exact: true })
       .dblclick();
-    await expect(page.getByLabel('Checkout 目標')).toHaveValue('remote:origin/release');
-    await expect(page.getByLabel('本機分支名稱')).toHaveValue('release');
     await finishCheckout();
     expect(git(path, 'branch', '--show-current')).toBe('release');
     expect(git(path, 'rev-parse', '--abbrev-ref', '@{upstream}')).toBe('origin/release');
 
     await page.locator(`#commit-${latest}`).dblclick();
-    await expect(page.getByLabel('Checkout 目標')).toHaveValue('branch:main');
-    await assertLayout(page, ['.commit-action-dialog']);
-    await page.screenshot({ path: info.outputPath('double-click-checkout.png') });
     await finishCheckout();
     expect(git(path, 'branch', '--show-current')).toBe('main');
     expect(git(path, 'rev-parse', 'HEAD')).toBe(latest);

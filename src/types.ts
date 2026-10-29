@@ -103,7 +103,7 @@ export type GitOperation =
   | 'stashPop'
   | 'stashDrop';
 export type CommitOperation =
-  'addTag' | 'createBranch' | 'checkout' | 'cherryPick' | 'revert' | 'merge' | 'rebase' | 'reset';
+  'addTag' | 'createBranch' | 'cherryPick' | 'revert' | 'merge' | 'rebase' | 'reset';
 export interface GitRequest {
   operation: GitOperation;
   files?: string[];

@@ -64,7 +64,7 @@ test('遠端右鍵同步：快轉其他本機分支、目前分支與拒絕分�
     );
     await target.click({ button: 'right' });
     if (!useBadge) {
-      await expect(page.getByRole('menuitem', { name: 'Checkout…', exact: true })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Checkout', exact: true })).toBeVisible();
       await expect(page.getByRole('menuitem', { name: /同步本機分支/ })).toHaveCount(1);
       await assertLayout(page, ['.context-menu']);
       await page.screenshot({ path: info.outputPath('commit-row-sync-menu.png') });

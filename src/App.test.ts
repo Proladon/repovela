@@ -745,7 +745,7 @@ describe('桌面分頁與瀏覽互動', () => {
     await fireEvent.click(button);
     expect(mocked.website).toHaveBeenCalledTimes(2);
   });
-  it('單擊 commit 只選取，雙擊開啟 Checkout 並沿用目標與 HEAD 檢查', async () => {
+  it('單擊 commit 只選取，雙擊直接 Checkout 並檢查 HEAD', async () => {
     saveProjects();
     render(App);
     await screen.findByRole('heading', { name: '初始版本' });
@@ -753,9 +753,6 @@ describe('桌面分頁與瀏覽互動', () => {
     await fireEvent.click(row);
     expect(screen.queryByRole('dialog')).toBeNull();
     await fireEvent.dblClick(row);
-    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe('detached');
-    expect(mocked.operate).not.toHaveBeenCalled();
-    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
     await waitFor(() =>
       expect(mocked.operate).toHaveBeenCalledWith('/a', {
         operation: 'checkout',
@@ -825,11 +822,6 @@ describe('桌面分頁與瀏覽互動', () => {
     expect(branch.isConnected).toBe(true);
     await fireEvent.click(branch, { detail: 2 });
     await fireEvent.dblClick(branch);
-    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe(
-      'remote:origin/release',
-    );
-    expect((screen.getByLabelText('本機分支名稱') as HTMLInputElement).value).toBe('release');
-    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
     await waitFor(() =>
       expect(mocked.operate).toHaveBeenCalledWith('/a', {
         operation: 'checkout',
@@ -1596,95 +1588,7 @@ describe('桌面分頁與瀏覽互動', () => {
     expect((screen.getByLabelText(field) as HTMLInputElement).value).toBe('');
   });
 
-  it('只有遠端分支時 Checkout 建立本機追蹤分支，切到 master 後合併最新 release', async () => {
-    saveProjects();
-    let state = 'detached';
-    mocked.repository.mockImplementation(async (path: string) => ({
-      ...snapshot(path),
-      head: state === 'detached' ? 'HEAD' : state === 'release' ? 'release/2.102' : 'master',
-      headOid: state === 'master' ? commits[1].oid : commits[0].oid,
-      branches: [
-        {
-          name: 'origin/release/2.102',
-          oid: commits[0].oid,
-          isRemote: true,
-          isHead: false,
-          localName: 'release/2.102',
-        },
-        {
-          name: 'origin/master',
-          oid: commits[1].oid,
-          isRemote: true,
-          isHead: false,
-          localName: 'master',
-        },
-        ...(state !== 'detached'
-          ? [
-              {
-                name: 'release/2.102',
-                oid: commits[0].oid,
-                isRemote: false,
-                isHead: state === 'release',
-              },
-            ]
-          : []),
-        ...(state === 'master'
-          ? [{ name: 'master', oid: commits[1].oid, isRemote: false, isHead: true }]
-          : []),
-      ],
-    }));
-    mocked.operate.mockImplementation(async (_path, request) => {
-      if (request.operation === 'checkout')
-        state = request.branch === 'master' ? 'master' : 'release';
-      return 'ok';
-    });
-    render(App);
-    await screen.findByRole('heading', { name: '初始版本' });
-    await fireEvent.contextMenu(document.getElementById(`commit-${commits[0].oid}`)!);
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout…' }));
-    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe(
-      'remote:origin/release/2.102',
-    );
-    expect((screen.getByLabelText('本機分支名稱') as HTMLInputElement).value).toBe('release/2.102');
-    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await screen.findByRole('button', { name: 'release/2.102' });
-    expect(mocked.operate).toHaveBeenLastCalledWith('/a', {
-      operation: 'checkout',
-      oid: commits[0].oid,
-      branch: 'release/2.102',
-      remoteBranch: 'origin/release/2.102',
-      expectedHead: commits[0].oid,
-      expectedBranch: 'HEAD',
-    });
-    await fireEvent.contextMenu(document.getElementById(`commit-${commits[1].oid}`)!);
-    await fireEvent.click(screen.getByRole('menuitem', { name: '合併至目前分支…' }));
-    expect(screen.getByText('合併方向：origin/master → release/2.102')).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: '取消操作' }));
-    await fireEvent.contextMenu(document.getElementById(`commit-${commits[1].oid}`)!);
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout…' }));
-    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe(
-      'remote:origin/master',
-    );
-    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    await screen.findByRole('button', { name: 'master' });
-    await fireEvent.contextMenu(document.getElementById(`commit-${commits[0].oid}`)!);
-    await fireEvent.click(screen.getByRole('menuitem', { name: '合併至目前分支…' }));
-    expect(screen.getByText('合併方向：release/2.102 → master')).toBeTruthy();
-    await fireEvent.click(screen.getByRole('button', { name: '執行 合併至目前分支' }));
-    await waitFor(() =>
-      expect(mocked.operate).toHaveBeenLastCalledWith('/a', {
-        operation: 'merge',
-        oid: commits[0].oid,
-        mode: 'auto',
-        expectedHead: commits[1].oid,
-        expectedBranch: 'refs/heads/master',
-      }),
-    );
-  });
-
-  it('遠端 Checkout 同名本機分支已存在時，必須選新名稱，不覆寫既有分支', async () => {
+  it('遠端分支已有落後的同名本機分支時直接送出同步與 Checkout', async () => {
     saveProjects();
     mocked.repository.mockImplementation(async (path: string) => ({
       ...snapshot(path),
@@ -1704,25 +1608,19 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '初始版本' });
     await fireEvent.contextMenu(document.getElementById(`commit-${commits[0].oid}`)!);
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout…' }));
-    const button = screen.getByRole('button', { name: '執行 Checkout' }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
-    await fireEvent.update(screen.getByLabelText('本機分支名稱'), 'master');
-    expect(button.disabled).toBe(true);
-    expect(mocked.operate).not.toHaveBeenCalled();
-    await fireEvent.update(screen.getByLabelText('本機分支名稱'), 'master-test');
-    expect(button.disabled).toBe(false);
-    await fireEvent.click(button);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout' }));
     await waitFor(() =>
-      expect(mocked.operate).toHaveBeenLastCalledWith('/a', {
+      expect(mocked.operate).toHaveBeenCalledWith('/a', {
         operation: 'checkout',
         oid: commits[0].oid,
-        branch: 'master-test',
+        branch: 'master',
         remoteBranch: 'origin/master',
+        expectedLocalOid: commits[1].oid,
         expectedHead: commits[1].oid,
         expectedBranch: 'refs/heads/master',
       }),
     );
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('擁有者錯誤需明確確認才信任；取消不加入專案', async () => {
@@ -1822,9 +1720,7 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '初始版本' });
     await fireEvent.contextMenu(document.getElementById(`commit-${commits[0].oid}`)!);
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout…' }));
-    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe('branch:dev');
-    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await screen.findByRole('button', { name: 'dev' });
     expect(mocked.operate).toHaveBeenCalledWith('/a', {
@@ -1850,7 +1746,7 @@ describe('桌面分頁與瀏覽互動', () => {
     );
   });
 
-  it('Checkout 多個本機分支時要求選擇，也可明確進入 Detached HEAD', async () => {
+  it('Checkout 多個本機分支時直接進入 Detached HEAD', async () => {
     saveProjects();
     let detached = false;
     mocked.repository.mockImplementation(async (path: string) => ({
@@ -1870,13 +1766,7 @@ describe('桌面分頁與瀏覽互動', () => {
     render(App);
     await screen.findByRole('heading', { name: '初始版本' });
     await fireEvent.contextMenu(document.getElementById(`commit-${commits[1].oid}`)!);
-    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout…' }));
-    expect((screen.getByLabelText('Checkout 目標') as HTMLSelectElement).value).toBe('');
-    expect(
-      (screen.getByRole('button', { name: '執行 Checkout' }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    await fireEvent.update(screen.getByLabelText('Checkout 目標'), 'detached');
-    await fireEvent.click(screen.getByRole('button', { name: '執行 Checkout' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Checkout' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await screen.findByRole('button', { name: 'Detached HEAD · bbbbbbb' });
     expect(mocked.operate).toHaveBeenCalledWith('/a', {
@@ -1900,7 +1790,6 @@ describe('桌面分頁與瀏覽互動', () => {
   it.each<[CommitOperation, string, string]>([
     ['addTag', '新增 Tag…', '新增 Tag'],
     ['createBranch', '建立分支…', '建立分支'],
-    ['checkout', 'Checkout…', 'Checkout'],
     ['cherryPick', 'Cherry-pick…', 'Cherry-pick'],
     ['revert', 'Revert…', 'Revert'],
     ['merge', '合併至目前分支…', '合併至目前分支'],
@@ -2121,7 +2010,7 @@ describe('桌面分頁與瀏覽互動', () => {
     await fireEvent.click(document.querySelector('.branch-picker > button')!);
     await fireEvent.contextMenu(screen.getByRole('button', { name: 'origin/main 遠端' }));
     expect(
-      (screen.getByRole('menuitem', { name: 'Checkout 遠端分支…' }) as HTMLButtonElement).disabled,
+      (screen.getByRole('menuitem', { name: 'Checkout 遠端分支' }) as HTMLButtonElement).disabled,
     ).toBe(false);
     await fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' });
     await fireEvent.contextMenu(screen.getByRole('button', { name: 'feature/test' }));

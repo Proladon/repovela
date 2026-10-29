@@ -54,7 +54,8 @@ test('遠端分支 Checkout：建立本機追蹤分支，再將最新 release �
     await (badge ? row.locator('.branch-badge') : row).click({ button: 'right' });
   };
   const finish = async (title: string) => {
-    await page.getByRole('button', { name: `執行 ${title}`, exact: true }).click();
+    if (title !== 'Checkout')
+      await page.getByRole('button', { name: `執行 ${title}`, exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Git 操作已完成');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Fetch', exact: true })).toBeEnabled();
@@ -74,11 +75,7 @@ test('遠端分支 Checkout：建立本機追蹤分支，再將最新 release �
     ).toBeDisabled();
     await page.keyboard.press('Escape');
     await menu(latest);
-    await page.getByRole('menuitem', { name: 'Checkout…', exact: true }).click();
-    await expect(page.getByLabel('Checkout 目標')).toHaveValue('remote:origin/release/2.102');
-    await expect(page.getByLabel('本機分支名稱')).toHaveValue('release/2.102');
-    await assertLayout(page, ['.commit-action-dialog']);
-    await page.screenshot({ path: info.outputPath('remote-checkout.png') });
+    await page.getByRole('menuitem', { name: 'Checkout', exact: true }).click();
     await finish('Checkout');
     expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('release/2.102');
     expect(git('rev-parse', '--abbrev-ref', '@{upstream}')).toBe('origin/release/2.102');
@@ -87,9 +84,7 @@ test('遠端分支 Checkout：建立本機追蹤分支，再將最新 release �
     await expect(page.getByRole('dialog')).toContainText('合併方向：origin/master → release/2.102');
     await page.getByRole('button', { name: '取消操作' }).click();
     await menu(base, true);
-    await page.getByRole('menuitem', { name: 'Checkout 遠端分支…', exact: true }).click();
-    await expect(page.getByLabel('Checkout 目標')).toHaveValue('remote:origin/master');
-    await expect(page.getByLabel('本機分支名稱')).toHaveValue('master');
+    await page.getByRole('menuitem', { name: 'Checkout 遠端分支', exact: true }).click();
     await finish('Checkout');
     expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('master');
     expect(git('rev-parse', '--abbrev-ref', '@{upstream}')).toBe('origin/master');

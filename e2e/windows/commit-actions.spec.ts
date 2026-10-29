@@ -69,7 +69,8 @@ test('Commit 右鍵操作：Tag、分支、Checkout、Cherry-pick、Revert、Mer
     });
   };
   const finish = async (title: string) => {
-    await page.getByRole('button', { name: `執行 ${title}`, exact: true }).click();
+    if (title !== 'Checkout')
+      await page.getByRole('button', { name: `執行 ${title}`, exact: true }).click();
     await expect(page.getByRole('alert')).toContainText('Git 操作已完成');
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Fetch', exact: true })).toBeEnabled();
@@ -86,7 +87,7 @@ test('Commit 右鍵操作：Tag、分支、Checkout、Cherry-pick、Revert、Mer
     for (const label of [
       '新增 Tag…',
       '建立分支…',
-      'Checkout…',
+      'Checkout',
       'Cherry-pick…',
       'Revert…',
       '合併至目前分支…',
@@ -99,8 +100,8 @@ test('Commit 右鍵操作：Tag、分支、Checkout、Cherry-pick、Revert、Mer
     }
     await page.screenshot({ path: info.outputPath('commit-context-menu.png') });
     await page.keyboard.press('Escape');
-    await open(dev, 'Checkout…');
-    await expect(page.getByLabel('Checkout 目標')).toHaveValue('branch:dev');
+    await openMenu(dev);
+    await page.getByRole('menuitem', { name: 'Checkout', exact: true }).click();
     await finish('Checkout');
     expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('dev');
     for (const [label, title] of [
@@ -113,8 +114,8 @@ test('Commit 右鍵操作：Tag、分支、Checkout、Cherry-pick、Revert、Mer
       await expect(page.getByRole('button', { name: `執行 ${title}`, exact: true })).toBeEnabled();
       await page.getByRole('button', { name: '取消操作' }).click();
     }
-    await open(before, 'Checkout…');
-    await expect(page.getByLabel('Checkout 目標')).toHaveValue('branch:main');
+    await openMenu(before);
+    await page.getByRole('menuitem', { name: 'Checkout', exact: true }).click();
     await finish('Checkout');
     await open(base, '新增 Tag…');
     await page.getByLabel('Tag 名稱').fill('v-base');
@@ -127,13 +128,12 @@ test('Commit 右鍵操作：Tag、分支、Checkout、Cherry-pick、Revert、Mer
     await finish('建立分支');
     expect(git('rev-parse', 'from-base')).toBe(base);
     expect(git('rev-parse', 'HEAD')).toBe(before);
-    await open(base, 'Checkout…');
-    await expect(page.getByLabel('Checkout 目標')).toHaveValue('branch:from-base');
-    await page.getByLabel('Checkout 目標').selectOption('detached');
+    await openMenu(base);
+    await page.getByRole('menuitem', { name: 'Checkout', exact: true }).click();
     await finish('Checkout');
-    expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('HEAD');
-    await open(before, 'Checkout…');
-    await page.getByLabel('Checkout 目標').selectOption('branch:main');
+    expect(git('rev-parse', '--abbrev-ref', 'HEAD')).toBe('from-base');
+    await openMenu(before);
+    await page.getByRole('menuitem', { name: 'Checkout', exact: true }).click();
     await finish('Checkout');
     await open(feature, 'Cherry-pick…');
     await finish('Cherry-pick');

@@ -154,9 +154,26 @@ pub fn build_graph(
         .map(|(parent, _)| *parent)
         .collect();
 
-    // Lane tracking: OID tracked by each lane
-    // Reserve the leftmost lane for HEAD even when newer commits are listed first.
-    let reserved_head = head_oid.filter(|oid| oid_to_row.contains_key(oid));
+    // Start the HEAD lane at the newest visible first-parent descendant, so
+    // checking out an older commit does not split its continuous history.
+    let head_in_history = head_oid.filter(|oid| oid_to_row.contains_key(oid));
+    let mut head_line = std::collections::HashSet::new();
+    if let Some(oid) = head_in_history {
+        head_line.insert(oid);
+        for commit in commits.iter().rev() {
+            if commit
+                .parent_oids
+                .first()
+                .is_some_and(|parent| head_line.contains(parent))
+            {
+                head_line.insert(commit.oid);
+            }
+        }
+    }
+    let reserved_head = commits
+        .iter()
+        .find(|commit| head_line.contains(&commit.oid))
+        .map(|commit| commit.oid);
     let mut lanes: Vec<Option<Oid>> = reserved_head.into_iter().map(Some).collect();
     let mut nodes: Vec<GraphNode> = Vec::new();
     let mut max_lane: usize = 0;
@@ -833,18 +850,82 @@ mod tests {
         let head_node = layout.nodes.iter().find(|node| node.is_head).unwrap();
         assert_eq!(head_node.lane, 0);
         assert!(layout.max_lane > 1);
-        assert_eq!(layout.nodes[0].cells[0], CellType::Empty);
-        let first_edge = layout
-            .nodes
-            .iter()
-            .find_map(|node| node.cells.first().filter(|cell| **cell != CellType::Empty));
-        assert!(matches!(first_edge, Some(CellType::BranchRight(_))));
+        assert_eq!(layout.nodes[0].lane, 0);
         let base_node = layout
             .nodes
             .iter()
             .find(|node| node.commit.as_ref().is_some_and(|c| c.oid == base))
             .unwrap();
         assert_eq!(base_node.lane, 0);
+    }
+
+    #[test]
+    fn older_detached_head_stays_on_first_parent_line_through_a_merge() {
+        let oid = |n: usize| Oid::from_str(&format!("{n:040x}")).unwrap();
+        let (tip, feature, next, head, base) = (oid(1), oid(2), oid(3), oid(4), oid(5));
+        let mut merge = make_commit(tip);
+        merge.parent_oids = vec![next, feature];
+        let mut feature_commit = make_commit(feature);
+        feature_commit.parent_oids.push(base);
+        let mut next_commit = make_commit(next);
+        next_commit.parent_oids.push(head);
+        let mut head_commit = make_commit(head);
+        head_commit.parent_oids.push(base);
+        let commits = vec![
+            merge,
+            feature_commit,
+            next_commit,
+            head_commit,
+            make_commit(base),
+        ];
+
+        for uncommitted in [None, Some(Some(1))] {
+            let layout = build_graph(&commits, &[], &[], uncommitted, Some(head));
+            let node = |oid| {
+                layout
+                    .nodes
+                    .iter()
+                    .find(|node| node.commit.as_ref().is_some_and(|c| c.oid == oid))
+                    .unwrap()
+            };
+            for oid in [tip, next, head, base] {
+                assert_eq!(
+                    node(oid).lane,
+                    0,
+                    "first-parent history must stay on one lane"
+                );
+                assert_eq!(node(oid).color_index, node(tip).color_index);
+            }
+            assert!(node(head).is_head);
+            assert_ne!(node(feature).lane, node(head).lane);
+            assert!(matches!(node(feature).cells[0], CellType::Pipe(_)));
+            if uncommitted.is_some() {
+                let worktree = layout
+                    .nodes
+                    .iter()
+                    .find(|node| node.is_uncommitted)
+                    .unwrap();
+                assert_ne!(worktree.lane, node(head).lane);
+            }
+        }
+    }
+
+    #[test]
+    fn unrelated_history_does_not_create_a_phantom_head_line() {
+        let oid = |n: usize| Oid::from_str(&format!("{n:040x}")).unwrap();
+        let unrelated = make_commit(oid(1));
+        let mut tip = make_commit(oid(2));
+        tip.parent_oids.push(oid(3));
+        let layout = build_graph(
+            &[unrelated, tip, make_commit(oid(3))],
+            &[],
+            &[],
+            None,
+            Some(oid(3)),
+        );
+        assert_eq!(layout.nodes[0].cells[0], CellType::Empty);
+        assert_eq!(layout.nodes[1].lane, 0);
+        assert_eq!(layout.nodes[2].lane, 0);
     }
 
     #[test]
