@@ -455,6 +455,14 @@ pre {
   background: #1a1d24;
   color: #d8d4e3;
 }
+.tab-ghost {
+  opacity: 0.4;
+  outline: 1px dashed #b69cec;
+}
+.tab-dragging,
+.tab-dragging > button[role='tab'] {
+  cursor: grabbing;
+}
 .tab.selected:before {
   content: '';
   position: absolute;

@@ -160,6 +160,52 @@ afterEach(() => {
 });
 
 describe('桌面分頁與瀏覽互動', () => {
+  it.each([
+    ['關閉分頁', ['專案 A', '專案 C'], '專案 A'],
+    ['關閉所有分頁', [], null],
+    ['關閉其他分頁', ['專案 B'], '專案 B'],
+    ['關閉左側分頁', ['專案 B', '專案 C'], '專案 B'],
+    ['關閉右側分頁', ['專案 A', '專案 B'], '專案 A'],
+  ])('分頁選單可執行「%s」', async (action, remaining, active) => {
+    saveProjects();
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+    saved.projects.push({ path: '/c', name: '專案 C', pinned: false });
+    saved.tabs.push({ path: '/c', selection: null, remotes: true, limit: 500 });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.contextMenu(screen.getByRole('tab', { name: '專案 B' }));
+    expect(screen.getByRole('tab', { name: '專案 A' }).getAttribute('aria-selected')).toBe('true');
+    await fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem', { name: action }));
+    const tabs = screen.queryAllByRole('tab');
+    expect(tabs.map((tab) => tab.textContent?.trim())).toEqual(remaining);
+    expect(
+      tabs.find((tab) => tab.getAttribute('aria-selected') === 'true')?.textContent?.trim() ?? null,
+    ).toBe(active);
+    await waitFor(() => {
+      const session = JSON.parse(localStorage.getItem(STORAGE_KEY)!);
+      expect(session.tabs.map((tab: { path: string }) => tab.path)).toEqual(
+        remaining.map((name) => ({ '專案 A': '/a', '專案 B': '/b', '專案 C': '/c' })[name]),
+      );
+      expect(session.projects).toHaveLength(3);
+    });
+  });
+
+  it('分頁選單停用沒有目標的操作', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.contextMenu(screen.getByRole('tab', { name: '專案 A' }));
+    expect(
+      (screen.getByRole('menuitem', { name: '關閉左側分頁' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await fireEvent.click(screen.getByRole('menuitem', { name: '關閉其他分頁' }));
+    await fireEvent.contextMenu(screen.getByRole('tab', { name: '專案 A' }));
+    for (const name of ['關閉其他分頁', '關閉左側分頁', '關閉右側分頁']) {
+      expect((screen.getByRole('menuitem', { name }) as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
   it('先顯示本機歷史，背景 Fetch 後更新對應分頁', async () => {
     saveProjects();
     let finish!: () => void;

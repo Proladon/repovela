@@ -1,13 +1,17 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
+import Draggable from 'vuedraggable';
 
 import {
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   ArrowUp,
   ArrowLeftRight,
   Archive,
   CloudDownload,
   Copy,
+  CopyX,
   ChevronDown,
   CircleHelp,
   ExternalLink,
@@ -33,6 +37,7 @@ import {
   Search,
   Settings2,
   SquareTerminal,
+  SquareX,
   X,
 } from 'lucide-vue-next';
 import { api, chooseProjects, demo, native, openRepositoryWebsite } from './api';
@@ -187,6 +192,37 @@ const dispatch = (action: Action) => {
   }
   session.value = next;
 };
+function openTabMenu(event: MouseEvent, path: string) {
+  const tabs = session.value.tabs;
+  const index = tabs.findIndex((tab) => tab.path === path);
+  if (index < 0) return;
+  const closeTabs = (paths: string[]) => {
+    for (const tabPath of paths) dispatch({ type: 'close', path: tabPath });
+  };
+  contextMenu.open(event, [
+    { label: '關閉分頁', icon: X, run: () => closeTabs([path]) },
+    { label: '關閉所有分頁', icon: CopyX, run: () => closeTabs(tabs.map((tab) => tab.path)) },
+    {
+      label: '關閉其他分頁',
+      icon: SquareX,
+      disabled: tabs.length < 2,
+      run: () => closeTabs(tabs.filter((tab) => tab.path !== path).map((tab) => tab.path)),
+    },
+    {
+      label: '關閉左側分頁',
+      icon: ArrowLeft,
+      disabled: index === 0,
+      separatorBefore: true,
+      run: () => closeTabs(tabs.slice(0, index).map((tab) => tab.path)),
+    },
+    {
+      label: '關閉右側分頁',
+      icon: ArrowRight,
+      disabled: index === tabs.length - 1,
+      run: () => closeTabs(tabs.slice(index + 1).map((tab) => tab.path)),
+    },
+  ]);
+}
 interface RepositoryResource {
   key: string;
   data?: Snapshot;
@@ -1381,11 +1417,32 @@ onUnmounted(() => {
     </aside>
     <main class="main" :inert="settingsOpen ? true : undefined">
       <div class="main-content">
-        <div class="tabs" role="tablist" aria-label="專案分頁">
-          <template v-for="t in session.tabs" :key="t.path"
-            ><div :class="`tab ${session.active === t.path ? 'selected' : ''}`">
+        <Draggable
+          :model-value="session.tabs"
+          item-key="path"
+          class="tabs"
+          role="tablist"
+          aria-label="專案分頁"
+          handle="[role='tab']"
+          :animation="150"
+          :force-fallback="true"
+          :fallback-on-body="true"
+          :fallback-tolerance="5"
+          ghost-class="tab-ghost"
+          drag-class="tab-dragging"
+          @start="contextMenu.close()"
+          @update:model-value="
+            dispatch({ type: 'reorderTabs', paths: $event.map((t: Tab) => t.path) })
+          "
+        >
+          <template #item="{ element: t }">
+            <div
+              :class="`tab ${session.active === t.path ? 'selected' : ''}`"
+              @contextmenu="openTabMenu($event, t.path)"
+            >
               <button
                 role="tab"
+                :draggable="false"
                 :aria-selected="session.active === t.path"
                 :title="t.path"
                 @click="
@@ -1411,18 +1468,22 @@ onUnmounted(() => {
                 "
               >
                 <X :size="13" />
-              </button></div></template
-          ><button
-            class="new-tab icon-button"
-            title="加入專案"
-            aria-label="加入專案分頁"
-            @click="() => void addProject()"
-          >
-            <Plus :size="17" /></button
-          ><span class="tab-spacer" /><span class="session-label">{{
-            demo ? '展示模式' : '自動還原分頁'
-          }}</span>
-        </div>
+              </button>
+            </div>
+          </template>
+          <template #footer>
+            <button
+              class="new-tab icon-button"
+              title="加入專案"
+              aria-label="加入專案分頁"
+              @click="() => void addProject()"
+            >
+              <Plus :size="17" /></button
+            ><span class="tab-spacer" /><span class="session-label">{{
+              demo ? '展示模式' : '自動還原分頁'
+            }}</span>
+          </template>
+        </Draggable>
         <template v-if="demo"
           ><div class="demo-banner">
             {{ '展示模式：範例資料僅供預覽，不會讀取你的電腦。' }}

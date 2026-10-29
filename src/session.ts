@@ -41,6 +41,7 @@ export type Action =
   | { type: 'open' | 'activate' | 'close' | 'remove' | 'pin'; path: string }
   | { type: 'rename'; path: string; name: string }
   | { type: 'reorder'; paths: string[] }
+  | { type: 'reorderTabs'; paths: string[] }
   | { type: 'reorderGroups'; ids: string[] }
   | { type: 'createGroup' | 'renameGroup'; id: string; name: string }
   | { type: 'toggleGroup' | 'removeGroup'; id: string }
@@ -49,6 +50,16 @@ export type Action =
 
 export function sessionReducer(state: Session, action: Action): Session {
   switch (action.type) {
+    case 'reorderTabs': {
+      const tabs = action.paths.map((path) => state.tabs.find((tab) => tab.path === path));
+      if (
+        tabs.length !== state.tabs.length ||
+        tabs.some((tab) => !tab) ||
+        new Set(tabs).size !== tabs.length
+      )
+        return state;
+      return { ...state, tabs: tabs as Tab[] };
+    }
     case 'reorderGroups': {
       const ordered = action.ids.map((id) => state.groups.find((group) => group.id === id));
       if (

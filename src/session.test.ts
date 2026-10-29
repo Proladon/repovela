@@ -2,6 +2,21 @@ import { describe, expect, it } from 'vitest';
 import { emptySession, restoreSession, sessionReducer } from './session';
 
 describe('多專案 session', () => {
+  it('分頁排序保留選取與內容，重開後還原，並拒絕無效排序', () => {
+    let state = emptySession;
+    for (const name of ['A', 'B', 'C'])
+      state = sessionReducer(state, { type: 'add', project: { path: `/${name}`, name } });
+    state = sessionReducer(state, { type: 'tab', path: '/A', patch: { selection: 'commit' } });
+    const before = state;
+    state = sessionReducer(state, { type: 'reorderTabs', paths: ['/C', '/A', '/B'] });
+    expect(state.tabs.map((tab) => tab.path)).toEqual(['/C', '/A', '/B']);
+    expect(state.tabs[1].selection).toBe('commit');
+    expect(state.active).toBe(before.active);
+    expect(state.projects).toBe(before.projects);
+    expect(restoreSession(JSON.stringify(state))).toEqual(state);
+    for (const paths of [['/A'], ['/A', '/A', '/C'], ['/A', '/B', '/missing']])
+      expect(sessionReducer(state, { type: 'reorderTabs', paths })).toBe(state);
+  });
   it('群組排序保留成員、折疊與分頁，重開還原順序', () => {
     let state = sessionReducer(emptySession, { type: 'add', project: { path: '/a', name: 'A' } });
     for (const id of ['one', 'two', 'three'])
