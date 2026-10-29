@@ -1026,43 +1026,25 @@ pre {
   font-size: calc(9px * var(--font-scale, 1));
   color: #858fa3;
 }
-.working-row {
+.commit-row.working-row {
+  background: #242c3b;
+  box-shadow: inset 2px 0 #87a9f6;
+}
+.commit-row.working-row:hover {
+  background: #303b50;
+}
+.commit-row.working-row.selected {
+  background: #34304b;
+  box-shadow: inset 2px 0 #b79cf0;
+}
+.working-row .worktree-label {
   display: flex;
   align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 15px 18px;
-  text-align: left;
-  border-bottom: 1px solid #292d37;
-  border-radius: 0;
-  background: #1b1f27;
-  min-height: 73px;
+  gap: 10px;
 }
-.working-row:hover {
-  background: #252837;
-}
-.worktree-icon {
-  width: 30px;
-  height: 30px;
-  background: #2a2d37;
-  color: #a2a7b7;
-  border-radius: 7px;
-  display: grid;
-  place-items: center;
-}
-.working-row > div:nth-child(2) {
-  flex: 1;
-}
-.working-row strong {
-  display: block;
-  font-weight: 500;
-  font-size: calc(12px * var(--font-scale, 1));
-}
-.working-row > div > span {
-  font-size: calc(10px * var(--font-scale, 1));
-  display: block;
+.working-row .worktree-label span {
   color: #888f9f;
-  margin-top: 6px;
+  font-size: calc(10px * var(--font-scale, 1));
 }
 .count {
   font-size: calc(10px * var(--font-scale, 1));

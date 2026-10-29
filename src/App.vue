@@ -60,7 +60,7 @@ import ToastHost from './ToastHost.vue';
 import { useToasts } from './toasts';
 import { useAppUpdate } from './appUpdate';
 import { defaultPreferences, fontStack, PREFERENCES_KEY, restorePreferences } from './preferences';
-import { graphColor, selectedGraphLine, type GraphGlowRow } from './graph';
+import { graphColor, selectedGraphLine, withWorktree, type GraphGlowRow } from './graph';
 import Graph from './Graph.vue';
 import ProjectLibrary from './ProjectLibrary.vue';
 import { emptySession, restoreSession, sessionReducer, STORAGE_KEY } from './session';
@@ -410,17 +410,24 @@ function openRepositorySite(event: MouseEvent) {
     })),
   );
 }
+const historyGraph = computed(() =>
+  withWorktree(snapshot.value?.rows ?? [], snapshot.value?.maxLane ?? 0),
+);
 const highlightedGraph = computed(() =>
   preferences.value.highlightSelectedLine
-    ? selectedGraphLine(snapshot.value?.rows ?? [], tab.value?.selection)
+    ? selectedGraphLine(historyGraph.value.rows, tab.value?.selection)
     : [],
 );
 const graphGlowRows = computed(() =>
-  (snapshot.value?.rows ?? []).map((row, i): GraphGlowRow => ({
+  historyGraph.value.rows.map((row, i): GraphGlowRow => ({
     cells: row.cells,
-    previousCells: snapshot.value?.rows[i - 1]?.cells,
+    previousCells: historyGraph.value.rows[i - 1]?.cells,
     highlightedCells: highlightedGraph.value[i] ?? [],
-    height: row.commit ? rowHeight.value : connectorHeight.value,
+    height: row.commit || row.isWorktree ? rowHeight.value : connectorHeight.value,
+    worktreeParent:
+      !!row.isHead &&
+      row.cells.findIndex((cell) => cell.kind === 'commit') ===
+        historyGraph.value.rows[0]?.cells.findIndex((cell) => cell.kind === 'commit'),
   })),
 );
 const currentBranch = computed(() => snapshot.value?.branches.find((b) => b.isHead && !b.isRemote));
@@ -454,12 +461,17 @@ const columnWidths = ref<Record<HistoryColumn, number | null>>({
   time: null,
   author: null,
 });
-const graphWidth = computed(() => ((snapshot.value?.maxLane ?? 0) + 1) * 20 + 16);
+const graphWidth = computed(() => (historyGraph.value.maxLane + 1) * 20 + 16);
+const worktreeGraphMinWidth = computed(() => {
+  const row = historyGraph.value.rows.find((item) => item.isWorktree);
+  const column = row?.cells.findIndex((cell) => cell.kind === 'commit') ?? 0;
+  return Math.max(36, 28 + Math.max(0, column) * 10);
+});
 const historyColumns = computed(() => [
   {
     key: 'graph' as const,
     label: '圖譜',
-    min: 36,
+    min: worktreeGraphMinWidth.value,
     max: Math.max(600, graphWidth.value),
   },
   { key: 'message' as const, label: 'Commit 訊息', min: 120 * fontScale.value, max: 1600 },
@@ -468,7 +480,10 @@ const historyColumns = computed(() => [
   { key: 'author' as const, label: '作者', min: 90 * fontScale.value, max: 480 },
 ]);
 const historyTableStyle = computed(() => {
-  const graph = Math.max(36, columnWidths.value.graph ?? Math.min(graphWidth.value, 300));
+  const graph = Math.max(
+    worktreeGraphMinWidth.value,
+    columnWidths.value.graph ?? Math.min(graphWidth.value, 300),
+  );
   const minMessage = 120 * fontScale.value;
   const message =
     columnWidths.value.message === null ? null : Math.max(minMessage, columnWidths.value.message);
@@ -812,6 +827,19 @@ function focusBranch(branch: Branch) {
   pendingBranchFocus.value = { path: tab.value.path, branch };
   finishBranchFocus();
 }
+function focusWorktree() {
+  if (!tab.value || !snapshot.value || loading.value || operating.value) return;
+  const path = tab.value.path;
+  branchMenu.value = false;
+  setQuery('');
+  select('worktree');
+  requestAnimationFrame(() => {
+    if (tab.value?.path !== path || tab.value.selection !== 'worktree') return;
+    const row = document.getElementById('commit-worktree');
+    row?.scrollIntoView({ block: 'center' });
+    row?.focus({ preventScroll: true });
+  });
+}
 function branchFocusItems(separatorBefore = false): MenuItem[] {
   const disabled = loading.value || operating.value;
   return [
@@ -833,10 +861,10 @@ function branchFocusItems(separatorBefore = false): MenuItem[] {
             run: () => {},
           },
         ]),
+    { label: '跳至工作區', icon: Layers3, separatorBefore: true, disabled, run: focusWorktree },
     {
       label: '跳至目前 checkout',
       icon: GitBranch,
-      separatorBefore: true,
       disabled: disabled || !snapshot.value?.headOid,
       disabledReason: !snapshot.value?.headOid ? '目前沒有已 checkout 的 commit。' : undefined,
       run: () => {
@@ -1554,8 +1582,10 @@ onUnmounted(() => {
                 v-show="!requestsOpen"
                 class="soft-button icon-button git-icon-action"
                 @click="focusPrimaryBranch"
-                :disabled="loading || operating || (!primaryBranches.length && !snapshot?.headOid)"
-                :title="primaryBranches.length ? primaryBranchTitle : '跳至目前 checkout（M）'"
+                :disabled="loading || operating || !snapshot"
+                :title="
+                  primaryBranches.length ? primaryBranchTitle : '跳至工作區或目前 checkout（M）'
+                "
                 aria-label="跳至 master/main"
                 aria-haspopup="menu"
                 :aria-expanded="contextMenu.state.value?.target === primaryBranchButton"
@@ -1688,23 +1718,6 @@ onUnmounted(() => {
                       <PanelRightOpen :size="16" /></button
                   ></label>
                   <div class="history-scroll" ref="historyRef" @scroll="rememberScroll">
-                    <button
-                      id="commit-worktree"
-                      :class="`working-row ${tab.selection === 'worktree' ? 'selected' : ''}`"
-                      @click="() => select('worktree')"
-                      @contextmenu="openWorktreeMenu"
-                    >
-                      <div class="worktree-icon"><Layers3 :size="17" /></div>
-                      <div>
-                        <strong>{{ '工作區' }}</strong
-                        ><span>{{
-                          snapshot.workingFiles.length
-                            ? `${snapshot.workingFiles.length} 個檔案尚未提交`
-                            : '工作目錄乾淨'
-                        }}</span>
-                      </div>
-                      <span class="count">{{ snapshot.workingFiles.length }}</span>
-                    </button>
                     <div class="history-table" :style="historyTableStyle">
                       <div class="history-columns">
                         <ColumnHeading
@@ -1718,9 +1731,46 @@ onUnmounted(() => {
                         />
                       </div>
                       <template
-                        v-for="(row, i) in snapshot.rows"
-                        :key="row.commit ? row.commit.oid : `connector-${i}`"
-                        ><template v-if="row.commit"
+                        v-for="(row, i) in historyGraph.rows"
+                        :key="
+                          row.commit
+                            ? row.commit.oid
+                            : row.isWorktree
+                              ? 'worktree'
+                              : `connector-${i}`
+                        "
+                        ><template v-if="row.isWorktree"
+                          ><button
+                            id="commit-worktree"
+                            :class="`commit-row working-row ${tab.selection === 'worktree' ? 'selected' : ''}`"
+                            @click="() => select('worktree')"
+                            @contextmenu="openWorktreeMenu"
+                          >
+                            <div class="graph-cell">
+                              <Graph
+                                :cells="row.cells"
+                                :previous-cells="historyGraph.rows[i - 1]?.cells"
+                                :highlighted-cells="highlightedGraph[i]"
+                                :previous-glow="graphGlowRows[i - 1]"
+                                :next-glow="graphGlowRows[i + 1]"
+                                :lanes="historyGraph.maxLane"
+                                :connector="false"
+                                :row-height="rowHeight"
+                                :stop-at-node="
+                                  !snapshot.headOid || !snapshot.rows.some((r) => r.isHead)
+                                "
+                              />
+                            </div>
+                            <div class="commit-text worktree-label">
+                              <strong>工作區</strong>
+                              <span>{{
+                                snapshot.workingFiles.length
+                                  ? `${snapshot.workingFiles.length} 個檔案尚未提交`
+                                  : '工作目錄乾淨'
+                              }}</span>
+                            </div>
+                            <span /><span /><span /></button></template
+                        ><template v-else-if="row.commit"
                           ><button
                             :id="`commit-${row.commit.oid}`"
                             :aria-current="row.isHead ? 'true' : undefined"
@@ -1733,13 +1783,20 @@ onUnmounted(() => {
                             <div class="graph-cell">
                               <Graph
                                 :cells="row.cells"
-                                :previous-cells="snapshot.rows[i - 1]?.cells"
+                                :previous-cells="historyGraph.rows[i - 1]?.cells"
                                 :highlighted-cells="highlightedGraph[i]"
                                 :previous-glow="graphGlowRows[i - 1]"
                                 :next-glow="graphGlowRows[i + 1]"
-                                :lanes="snapshot.maxLane"
+                                :lanes="historyGraph.maxLane"
                                 :connector="false"
                                 :is-head="row.isHead && preferences.highlightHead"
+                                :worktree-parent="
+                                  row.isHead &&
+                                  row.cells.findIndex((cell) => cell.kind === 'commit') ===
+                                    historyGraph.rows[0].cells.findIndex(
+                                      (cell) => cell.kind === 'commit',
+                                    )
+                                "
                                 :row-height="rowHeight"
                               />
                             </div>
@@ -1796,11 +1853,11 @@ onUnmounted(() => {
                             <div class="graph-cell">
                               <Graph
                                 :cells="row.cells"
-                                :previous-cells="snapshot.rows[i - 1]?.cells"
+                                :previous-cells="historyGraph.rows[i - 1]?.cells"
                                 :highlighted-cells="highlightedGraph[i]"
                                 :previous-glow="graphGlowRows[i - 1]"
                                 :next-glow="graphGlowRows[i + 1]"
-                                :lanes="snapshot.maxLane"
+                                :lanes="historyGraph.maxLane"
                                 :connector="true"
                                 :connector-height="connectorHeight"
                               />

@@ -7,6 +7,35 @@ import type { Cell } from './types';
 const cell = (kind: string, color = 0): Cell => ({ kind, color, secondary: color });
 
 describe('Git 圖譜節點連線', () => {
+  it('工作區接點保留分支顏色，未提交的線使用灰色', () => {
+    const graph = mount(Graph, {
+      props: {
+        cells: [{ kind: 'worktreeJoin', color: 9, secondary: 11 }],
+        lanes: 0,
+        connector: true,
+      },
+    });
+    const paths = graph.findAll('.graph-stroke path');
+    expect(paths[0].attributes('stroke')).toBe('#888d9a');
+    expect(paths[0].attributes('d')).toBe('M18 9 H23');
+    expect(paths[1].attributes('d')).toBe('M18 0 V18');
+  });
+
+  it('工作區與 HEAD 同線時只將 HEAD 上方連線顯示成灰色', () => {
+    const graph = mount(Graph, {
+      props: {
+        cells: [cell('commit', 9)],
+        previousCells: [cell('commit', 11)],
+        lanes: 0,
+        connector: false,
+        worktreeParent: true,
+      },
+    });
+    const paths = graph.findAll('.graph-stroke path');
+    expect(paths[0].attributes('d')).toBe('M18 16 V32');
+    expect(paths[1].attributes('d')).toBe('M18 0 V16');
+    expect(paths[1].attributes('stroke')).toBe('#888d9a');
+  });
   it('交叉線分別套用 highlight，切換時清除前一條線', async () => {
     const graph = mount(Graph, {
       props: {

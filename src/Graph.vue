@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { Cell } from './types';
-import { connectsFromAbove, graphColor, type GraphGlowRow, type HighlightedCell } from './graph';
+import {
+  connectsFromAbove,
+  graphColor,
+  WORKTREE_COLOR,
+  type GraphGlowRow,
+  type HighlightedCell,
+} from './graph';
 
 const props = defineProps<{
   cells: Cell[];
@@ -12,6 +18,8 @@ const props = defineProps<{
   lanes: number;
   connector: boolean;
   isHead?: boolean;
+  stopAtNode?: boolean;
+  worktreeParent?: boolean;
   rowHeight?: number;
   connectorHeight?: number;
 }>();
@@ -26,6 +34,7 @@ function segments(
   index: number,
   h = height.value,
   previousCells = props.previousCells,
+  worktreeParent = props.worktreeParent,
 ) {
   const m = h / 2;
   const top = `M${x} 0 V${h}`;
@@ -35,7 +44,7 @@ function segments(
     case 'commit': {
       // Only extend upward when the previous row has a downward edge in this lane.
       const connected = connectsFromAbove(previousCells?.[index]);
-      return `M${x} ${connected ? 0 : m} V${h}`;
+      return `M${x} ${connected && !worktreeParent ? 0 : m} V${props.stopAtNode ? m : h}`;
     }
     case 'horizontal':
       return `M${x - 5} ${m} H${x + 5}`;
@@ -47,6 +56,10 @@ function segments(
       return `M${x} 0 V${m - 3} Q${x} ${m} ${x + 3} ${m} H${x + 5}`;
     case 'mergeLeft':
       return `M${x} 0 V${m - 3} Q${x} ${m} ${x - 3} ${m} H${x - 5}`;
+    case 'worktreeJoin':
+      return top;
+    case 'worktreeBranch':
+      return `M${x} ${m} V${h}`;
     case 'teeRight':
       return `${top} M${x} ${m} H${x + 5}`;
     case 'teeLeft':
@@ -71,6 +84,7 @@ const glowSegments = computed(() => {
         previousCells: props.previousCells,
         highlightedCells: props.highlightedCells ?? [],
         height: height.value,
+        worktreeParent: props.worktreeParent,
       },
       offset: 0,
     },
@@ -84,13 +98,18 @@ const glowSegments = computed(() => {
         const x = 18 + i * 10;
         if (highlighted?.primary) {
           paths.push({
-            d: segments(cell, x, i, row.height, row.previousCells),
+            d: segments(cell, x, i, row.height, row.previousCells, row.worktreeParent ?? false),
             color: cell.color,
             offset,
           });
         }
-        if (cell.kind === 'cross' && highlighted?.secondary) {
-          paths.push({ d: `M${x} 0 V${row.height}`, color: cell.secondary, offset });
+        if (
+          highlighted?.secondary &&
+          ['cross', 'worktreeJoin', 'worktreeBranch'].includes(cell.kind)
+        ) {
+          const d =
+            cell.kind === 'cross' ? `M${x} 0 V${row.height}` : `M${x} ${row.height / 2} H${x + 5}`;
+          paths.push({ d, color: cell.secondary, offset });
         }
         return paths;
       }) ?? [],
@@ -125,15 +144,24 @@ const glowSegments = computed(() => {
       fill="none"
     >
       <path
-        v-if="cell.kind === 'cross'"
+        v-if="['cross', 'worktreeJoin', 'worktreeBranch'].includes(cell.kind)"
         :class="{ 'graph-line-highlight': highlightedCells?.[i]?.secondary }"
-        :d="`M${18 + i * 10} 0 V${height}`"
+        :d="
+          cell.kind === 'cross'
+            ? `M${18 + i * 10} 0 V${height}`
+            : `M${18 + i * 10} ${mid} H${23 + i * 10}`
+        "
         :stroke="graphColor(cell.secondary)"
         :style="{ color: graphColor(cell.secondary) }"
       />
       <path
         :class="{ 'graph-line-highlight': highlightedCells?.[i]?.primary }"
         :d="segments(cell, 18 + i * 10, i)"
+      />
+      <path
+        v-if="cell.kind === 'commit' && worktreeParent"
+        :d="`M${18 + i * 10} 0 V${mid}`"
+        :stroke="graphColor(WORKTREE_COLOR)"
       />
       <circle
         v-if="cell.kind === 'commit' && isHead"

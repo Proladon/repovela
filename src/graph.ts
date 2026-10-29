@@ -15,6 +15,8 @@ const palette = [
   '#888d9a',
 ];
 
+export const WORKTREE_COLOR = 11;
+
 export const graphColor = (index: number) => palette[index % palette.length];
 
 export interface HighlightedCell {
@@ -27,6 +29,7 @@ export interface GraphGlowRow {
   previousCells?: Cell[];
   highlightedCells: HighlightedCell[];
   height: number;
+  worktreeParent?: boolean;
 }
 
 const downwardKinds = new Set([
@@ -37,6 +40,8 @@ const downwardKinds = new Set([
   'teeRight',
   'teeLeft',
   'cross',
+  'worktreeJoin',
+  'worktreeBranch',
 ]);
 
 export const connectsFromAbove = (previous?: Cell) =>
@@ -54,6 +59,8 @@ const ports: Record<string, Direction[]> = {
   teeLeft: ['up', 'down', 'left'],
   teeUp: ['up', 'left', 'right'],
   cross: ['left', 'right'],
+  worktreeJoin: ['up', 'down'],
+  worktreeBranch: ['down'],
 };
 const neighbors: Record<Direction, [number, number, Direction]> = {
   up: [-1, 0, 'down'],
@@ -75,7 +82,12 @@ export function selectedGraphLine(rows: Row[], oid?: string | null): Highlighted
   const pending: Segment[] = [{ row: startRow, column: startColumn, part: 'primary' }];
   const segmentPorts = ({ row, column, part }: Segment): Direction[] => {
     const cell = rows[row].cells[column];
-    if (part === 'secondary') return cell.kind === 'cross' ? ['up', 'down'] : [];
+    if (part === 'secondary')
+      return cell.kind === 'cross'
+        ? ['up', 'down']
+        : ['worktreeJoin', 'worktreeBranch'].includes(cell.kind)
+          ? ['right']
+          : [];
     if (cell.kind === 'commit') {
       return connectsFromAbove(rows[row - 1]?.cells[column])
         ? ['up', 'down', 'left', 'right']
@@ -105,4 +117,86 @@ export function selectedGraphLine(rows: Row[], oid?: string | null): Highlighted
     }
   }
   return highlighted;
+}
+
+// Keep the working tree at the top and connect it to the checked-out commit.
+export function withWorktree(rows: Row[], maxLane: number): { rows: Row[]; maxLane: number } {
+  const headIndex = rows.findIndex((row) => row.isHead && row.commit);
+  const head = rows[headIndex];
+  const headColumn = head?.cells.findIndex((cell) => cell.kind === 'commit') ?? -1;
+  const empty = (): Cell => ({ kind: 'empty', color: 0, secondary: 0 });
+  const cell = (kind: string, color: number, secondary = color): Cell => ({
+    kind,
+    color,
+    secondary,
+  });
+  const color = WORKTREE_COLOR;
+  let worktreeColumn = Math.max(0, headColumn);
+  if (headColumn >= 0) {
+    // A horizontal line can be crossed; all other occupied cells need their
+    // own lane so that no existing branch is overwritten.
+    while (
+      rows.slice(0, headIndex).some((row) => {
+        const kind = row.cells[worktreeColumn]?.kind;
+        return kind && kind !== 'empty' && kind !== 'horizontal';
+      })
+    )
+      worktreeColumn += 2;
+  }
+  const resultMaxLane = Math.max(maxLane, worktreeColumn / 2);
+  const size = (resultMaxLane + 1) * 2;
+  const worktreeCells = Array.from({ length: size }, empty);
+  worktreeCells[worktreeColumn] = cell('commit', color);
+  const worktree: Row = {
+    commit: null,
+    branches: [],
+    tags: [],
+    isHead: false,
+    isWorktree: true,
+    cells: worktreeCells,
+  };
+  if (headColumn < 0) return { rows: [worktree, ...rows], maxLane: resultMaxLane };
+
+  const beforeHead = rows.slice(0, headIndex).map((row) => {
+    const cells = row.cells.slice();
+    while (cells.length < size) cells.push(empty());
+    const existing = cells[worktreeColumn];
+    cells[worktreeColumn] =
+      existing.kind === 'horizontal' ? cell('cross', existing.color, color) : cell('pipe', color);
+    return { ...row, cells };
+  });
+  if (worktreeColumn === headColumn) {
+    return { rows: [worktree, ...beforeHead, ...rows.slice(headIndex)], maxLane: resultMaxLane };
+  }
+
+  const previous = beforeHead.at(-1);
+  const connector = Array.from({ length: size }, (_, i) => {
+    const c = previous?.cells[i];
+    return c && connectsFromAbove(c)
+      ? cell('pipe', c.kind === 'cross' ? c.secondary : c.color)
+      : empty();
+  });
+  connector[headColumn] = cell(
+    connectsFromAbove(previous?.cells[headColumn]) ? 'worktreeJoin' : 'worktreeBranch',
+    head.cells[headColumn].color,
+    color,
+  );
+  for (let i = headColumn + 1; i < worktreeColumn; i++) {
+    connector[i] =
+      connector[i].kind === 'pipe'
+        ? cell('cross', color, connector[i].color)
+        : cell('horizontal', color);
+  }
+  connector[worktreeColumn] = cell('mergeLeft', color);
+  const connectorRow: Row = {
+    commit: null,
+    branches: [],
+    tags: [],
+    isHead: false,
+    cells: connector,
+  };
+  return {
+    rows: [worktree, ...beforeHead, connectorRow, ...rows.slice(headIndex)],
+    maxLane: resultMaxLane,
+  };
 }

@@ -160,6 +160,25 @@ afterEach(() => {
 });
 
 describe('桌面分頁與瀏覽互動', () => {
+  it('工作區列置頂並可開啟工作區', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => {
+      const data = snapshot(path);
+      data.headOid = commits[1].oid;
+      data.rows = data.rows.map((row, i) => ({ ...row, isHead: i === 1 }));
+      return data;
+    });
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const rows = Array.from(document.querySelectorAll('.history-table .commit-row'));
+    expect(rows.map((row) => row.id)).toEqual([
+      'commit-worktree',
+      `commit-${commits[0].oid}`,
+      `commit-${commits[1].oid}`,
+    ]);
+    await fireEvent.click(document.getElementById('commit-worktree')!);
+    expect(document.getElementById('commit-worktree')?.classList.contains('selected')).toBe(true);
+  });
   it.each([
     ['關閉分頁', ['專案 A', '專案 C'], '專案 A'],
     ['關閉所有分頁', [], null],
@@ -935,11 +954,11 @@ describe('桌面分頁與瀏覽互動', () => {
           group.querySelector('.graph-line-highlight'),
         ),
       );
-    expect(lines()).toEqual([2, 2, 2]);
+    expect(lines()).toEqual([-1, 2, 2, 2]);
     await fireEvent.click(document.getElementById(`commit-${commits[0].oid}`)!);
-    expect(lines()).toEqual([0, 0, 0]);
+    expect(lines()).toEqual([-1, 0, 0, 0]);
     await fireEvent.keyDown(window, { key: 'ArrowDown' });
-    expect(lines()).toEqual([2, 2, 2]);
+    expect(lines()).toEqual([-1, 2, 2, 2]);
   });
 
   it.each([1, 2, 8])('commit 整列右鍵僅提供一個同步入口，有 %s 個遠端標籤', async (count) => {
@@ -1323,6 +1342,7 @@ describe('桌面分頁與瀏覽互動', () => {
       '跳至 main',
       '跳至 master',
       '跳至 origin/main',
+      '跳至工作區',
       '跳至目前 checkout',
     ]);
     await fireEvent.click(screen.getByRole('menuitem', { name: '跳至 main' }));
@@ -1387,6 +1407,21 @@ describe('桌面分頁與瀏覽互動', () => {
     },
   );
 
+  it('跳至工作區會清除搜尋、選取並定位工作區', async () => {
+    saveProjects();
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const search = screen.getByRole('textbox', { name: '搜尋 commit' });
+    await fireEvent.update(search, '初始版本');
+    await fireEvent.click(screen.getByRole('button', { name: '跳至 master/main' }));
+    await fireEvent.click(screen.getByRole('menuitem', { name: '跳至工作區' }));
+    await waitFor(() => expect(document.activeElement?.id).toBe('commit-worktree'));
+    expect((search as HTMLInputElement).value).toBe('');
+    expect(document.getElementById('commit-worktree')?.classList.contains('selected')).toBe(true);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ block: 'center' });
+    expect(mocked.operate).not.toHaveBeenCalled();
+  });
+
   it('尚無 commit 時停用目前 checkout 的跳轉', async () => {
     saveProjects();
     mocked.repository.mockImplementation(async (path: string) => ({
@@ -1401,11 +1436,13 @@ describe('桌面分頁與瀏覽互動', () => {
     await screen.findByText('這個專案還沒有 commit。');
     expect(
       (screen.getByRole('button', { name: '跳至 master/main' }) as HTMLButtonElement).disabled,
-    ).toBe(true);
+    ).toBe(false);
     await fireEvent.contextMenu(document.querySelector('.toolbar')!);
     expect(
       (screen.getByRole('menuitem', { name: '跳至目前 checkout' }) as HTMLButtonElement).disabled,
     ).toBe(true);
+    await fireEvent.click(screen.getByRole('menuitem', { name: '跳至工作區' }));
+    await waitFor(() => expect(document.activeElement?.id).toBe('commit-worktree'));
     expect(mocked.operate).not.toHaveBeenCalled();
   });
 
@@ -2367,8 +2404,10 @@ describe('桌面分頁與瀏覽互動', () => {
     await screen.findByRole('heading', { name: '初始版本' });
     const history = screen.getByRole('region', { name: 'Git 歷史' });
     const graphs = history.querySelectorAll('.commit-row .graph-svg');
-    expect(graphs[0].querySelector('path')?.getAttribute('d')).toBe('M18 16 V32');
-    expect(graphs[1].querySelector('path')?.getAttribute('d')).toBe('M18 0 V32');
+    expect(graphs[0].querySelector('.graph-stroke path')?.getAttribute('d')).toBe('M18 16 V32');
+    const headPaths = graphs[1].querySelectorAll('.graph-stroke path');
+    expect(headPaths[0].getAttribute('d')).toBe('M18 16 V32');
+    expect(headPaths[1].getAttribute('d')).toBe('M18 0 V16');
   });
 
   it('首次切換才載入各分頁，之後切換直接顯示快取的歷史', async () => {

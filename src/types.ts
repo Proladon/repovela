@@ -157,6 +157,7 @@ export interface Row {
   branches: string[];
   tags: string[];
   isHead: boolean;
+  isWorktree?: boolean;
   cells: Cell[];
 }
 export interface WorkingFile {
