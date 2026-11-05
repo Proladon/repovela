@@ -1082,3 +1082,47 @@ fn local_remote_fetch_pull_and_push_set_upstream_and_refuse_divergence() {
         "local\n"
     );
 }
+
+#[test]
+fn discard_all_restores_tracked_and_removes_untracked_but_keeps_ignored() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = setup(dir.path());
+    std::fs::write(dir.path().join(".gitignore"), "ignored.txt\n").unwrap();
+    let head = write_save(dir.path(), "file.txt", "base\n", "base");
+    std::fs::write(dir.path().join("file.txt"), "staged\n").unwrap();
+    run(
+        dir.path(),
+        json!({"operation":"stage", "files":["file.txt"]}),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("file.txt"), "unstaged\n").unwrap();
+    std::fs::write(dir.path().join("new.txt"), "new").unwrap();
+    std::fs::write(dir.path().join("ignored.txt"), "keep").unwrap();
+    run(
+        dir.path(),
+        json!({"operation":"discardAll", "expectedHead": head.to_string()}),
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("file.txt")).unwrap(),
+        "base\n"
+    );
+    assert!(!dir.path().join("new.txt").exists());
+    assert!(dir.path().join("ignored.txt").exists());
+    assert_eq!(repo.head().unwrap().target(), Some(head));
+}
+
+#[test]
+fn discard_all_works_before_first_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = setup(dir.path());
+    std::fs::write(dir.path().join("new.txt"), "new").unwrap();
+    run(
+        dir.path(),
+        json!({"operation":"stage", "files":["new.txt"]}),
+    )
+    .unwrap();
+    run(dir.path(), json!({"operation":"discardAll"})).unwrap();
+    assert!(!dir.path().join("new.txt").exists());
+    assert!(repo.index().unwrap().is_empty());
+}

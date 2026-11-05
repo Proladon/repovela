@@ -12,6 +12,7 @@ import {
   ListPlus,
   Minus,
   Plus,
+  Trash2,
   X,
 } from 'lucide-vue-next';
 import { api, native } from './api';
@@ -29,7 +30,7 @@ const props = defineProps<{
   busy: boolean;
   operate: (request: GitRequest) => Promise<boolean>;
 }>();
-const emit = defineEmits<{ close: []; stash: [] }>();
+const emit = defineEmits<{ close: []; stash: []; discardAll: [] }>();
 const detail = shallowRef<{ key: string; data?: CommitDetail; error?: string }>({ key: '' });
 const file = ref<{ path: string; area: string } | null>(null);
 const patch = shallowRef<{ key: string; data?: FilePatch; error?: string }>({ key: '' });
@@ -83,6 +84,16 @@ function openWorktreeMenu(event: MouseEvent) {
       icon: GitCommitHorizontal,
       disabled: !native || props.busy || !canCommit.value || !commitMessage.value.trim(),
       run: submitCommit,
+    },
+    {
+      label: '捨棄所有變更',
+      icon: Trash2,
+      disabled:
+        !native ||
+        props.busy ||
+        !props.snapshot.workingFiles.length ||
+        (props.snapshot.operationState ?? 'clean') !== 'clean',
+      run: () => emit('discardAll'),
     },
     {
       label: 'Stash',

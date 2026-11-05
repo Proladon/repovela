@@ -1087,6 +1087,13 @@ pre {
 .commit-row:hover {
   background: #202530;
 }
+.commit-row.checkout-head {
+  background: #26313d;
+  box-shadow: inset 2px 0 #87a9f6;
+}
+.commit-row.checkout-head:not(.selected):hover {
+  background: #303d4c;
+}
 .commit-row.selected,
 .working-row.selected {
   background: #282537;
@@ -1094,6 +1101,9 @@ pre {
 }
 .commit-row.search-match {
   background: #252b33;
+}
+.commit-row.search-match.checkout-head:not(.selected) {
+  background: #303c43;
 }
 .commit-row.search-match.selected {
   background: #302b43;

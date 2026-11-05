@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import Draggable from 'vuedraggable';
+import { confirm } from '@tauri-apps/plugin-dialog';
 
 import {
   ArrowDown,
@@ -33,6 +34,7 @@ import {
   RotateCcw,
   Tag as TagIcon,
   Text,
+  Trash2,
   Undo2,
   Search,
   Settings2,
@@ -234,6 +236,7 @@ const autoFetches = new Map<string, object>();
 const fetchingPaths = shallowRef(new Set<string>());
 let disposed = false;
 const refresh = ref(0);
+const perfEnabled = import.meta.env.VITE_REPOVELA_PERF === '1';
 const projectSearch = ref('');
 const queries = ref<Record<string, string>>({});
 const {
@@ -604,11 +607,26 @@ function loadRepository(force = false, currentTab = tab.value, supersede = false
   };
   store(request);
   const isCurrent = () => !disposed && resources.value.get(currentTab.path) === request;
+  const perfStart = perfEnabled ? performance.now() : 0;
   api
     .repository(currentTab.path, currentTab.remotes, currentTab.limit)
     .then((data) => {
       if (isCurrent()) {
         store({ key: request.key, data, loading: false });
+        if (perfEnabled) {
+          console.info(
+            `[repovela-perf] repository.response ${(performance.now() - perfStart).toFixed(1)} ms`,
+          );
+          void nextTick(() => {
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                console.info(
+                  `[repovela-perf] repository.paint ${(performance.now() - perfStart).toFixed(1)} ms`,
+                );
+              }),
+            );
+          });
+        }
         if (native && data.remotes?.length && !autoFetches.has(currentTab.path)) {
           const token = {};
           autoFetches.set(currentTab.path, token);
@@ -649,6 +667,7 @@ async function operate(request: GitRequest): Promise<boolean> {
   const name = project.value?.name ?? currentTab.path;
   operating.value = true;
   operationError.value = '';
+  const perfStart = perfEnabled && request.operation === 'checkout' ? performance.now() : 0;
   try {
     await api.operate(currentTab.path, request);
     notifySuccess(`${name}：Git 操作已完成。`);
@@ -658,6 +677,10 @@ async function operate(request: GitRequest): Promise<boolean> {
     notifyError(operationError.value);
     return false;
   } finally {
+    if (perfStart)
+      console.info(
+        `[repovela-perf] checkout.response ${(performance.now() - perfStart).toFixed(1)} ms`,
+      );
     // Refresh even after failure: hooks and remote operations can make partial changes.
     operating.value = false;
     const latestTab = session.value.tabs.find((t) => t.path === currentTab.path);
@@ -919,6 +942,25 @@ async function composeCommit() {
   await nextTick();
   document.getElementById('commit-message')?.focus();
 }
+async function discardAllChanges() {
+  const currentTab = tab.value;
+  const currentSnapshot = snapshot.value;
+  if (!currentTab || !currentSnapshot || operating.value || loading.value) return;
+  const confirmed = await confirm(
+    '將捨棄所有已暫存及未暫存變更，並刪除未追蹤的檔案和資料夾。此操作無法復原。忽略的檔案及巢狀 Git 儲存庫通常會保留，但還原已追蹤檔案時可能覆寫阻擋的檔案。',
+    { title: '捨棄所有變更', kind: 'warning', okLabel: '捨棄所有變更', cancelLabel: '取消' },
+  );
+  if (
+    !confirmed ||
+    tab.value?.path !== currentTab.path ||
+    snapshot.value?.headOid !== currentSnapshot.headOid
+  )
+    return;
+  await operate({
+    operation: 'discardAll',
+    expectedHead: currentSnapshot.headOid ?? '',
+  });
+}
 function openWorktreeMenu(event: MouseEvent) {
   const files = snapshot.value?.workingFiles ?? [];
   const disabled = !native || operating.value || loading.value;
@@ -939,6 +981,13 @@ function openWorktreeMenu(event: MouseEvent) {
         operate({ operation: 'unstage', files: files.filter((f) => f.staged).map((f) => f.path) }),
     },
     { label: '撰寫提交訊息', icon: GitCommitHorizontal, disabled, run: composeCommit },
+    {
+      label: '捨棄所有變更',
+      icon: Trash2,
+      disabled:
+        disabled || !files.length || (snapshot.value?.operationState ?? 'clean') !== 'clean',
+      run: discardAllChanges,
+    },
     { label: 'Stash', icon: Archive, disabled, separatorBefore: true, run: openStash },
   ]);
 }
@@ -1807,7 +1856,7 @@ onUnmounted(() => {
                           ><button
                             :id="`commit-${row.commit.oid}`"
                             :aria-current="row.isHead ? 'true' : undefined"
-                            :class="`commit-row ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
+                            :class="`commit-row ${row.isHead ? 'checkout-head' : ''} ${tab.selection === row.commit.oid ? 'selected' : ''} ${queryLower && !matches.includes(row.commit.oid) ? 'dimmed' : ''} ${queryLower && matches.includes(row.commit.oid) ? 'search-match' : ''}`"
                             @click="() => select(row.commit!.oid)"
                             title="雙擊 Checkout"
                             @dblclick="checkoutCommit(row.commit!)"
@@ -1947,6 +1996,7 @@ onUnmounted(() => {
                     :operate="operate"
                     @close="closeDetail"
                     @stash="openStash"
+                    @discard-all="discardAllChanges"
                   />
                 </div>
               </div> </template

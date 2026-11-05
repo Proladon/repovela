@@ -10,9 +10,12 @@ pub(crate) static WRITES: Mutex<()> = Mutex::new(());
 
 /// A non-interactive refresh used when opening a project.
 pub fn auto_fetch(path: &str) -> Result<()> {
+    let _total = crate::perf::Span::new("fetch.total");
+    let lock_timer = crate::perf::Span::new("fetch.lock_wait");
     let _guard = WRITES
         .lock()
         .map_err(|_| anyhow::anyhow!("Git 操作鎖定失敗。"))?;
+    drop(lock_timer);
     let repo = Repository::open(path).context("無法開啟 Git 儲存庫。")?;
     let root = repo.workdir().context("裸儲存庫不支援自動 Fetch。")?;
     if repo.remotes()?.is_empty() {
@@ -57,6 +60,7 @@ pub fn auto_fetch(path: &str) -> Result<()> {
 pub enum GitOperation {
     Stage,
     Unstage,
+    DiscardAll,
     Commit,
     CreateBranch,
     SwitchBranch,
@@ -103,6 +107,11 @@ pub struct GitRequest {
 }
 
 fn run(repo: &Repository, args: &[String]) -> Result<String> {
+    let _timer = crate::perf::Span::new(match args.first().map(String::as_str) {
+        Some("switch") => "operation.git_switch",
+        Some("merge") => "operation.git_merge",
+        _ => "operation.git_command",
+    });
     let root = repo
         .workdir()
         .context("此操作需要工作目錄，不支援裸儲存庫。")?;
@@ -178,6 +187,7 @@ fn require_branch(repo: &Repository) -> Result<()> {
 }
 
 fn require_clean_worktree(repo: &Repository) -> Result<()> {
+    let _timer = crate::perf::Span::new("operation.clean_worktree");
     let mut options = git2::StatusOptions::new();
     options.include_untracked(true).recurse_untracked_dirs(true);
     if !repo.statuses(Some(&mut options))?.is_empty() {
@@ -198,9 +208,12 @@ fn target_commit(repo: &Repository, request: &GitRequest) -> Result<git2::Oid> {
 }
 
 pub fn git_operation(path: &str, request: GitRequest) -> Result<String> {
+    let _total = crate::perf::Span::new("operation.total");
+    let lock_timer = crate::perf::Span::new("operation.lock_wait");
     let _guard = WRITES
         .lock()
         .map_err(|_| anyhow::anyhow!("Git 操作鎖定失敗。"))?;
+    drop(lock_timer);
     let repo = Repository::open(path).context("無法開啟 Git 儲存庫。")?;
     if repo.is_bare() {
         bail!("此操作需要工作目錄，不支援裸儲存庫。");
@@ -211,7 +224,7 @@ pub fn git_operation(path: &str, request: GitRequest) -> Result<String> {
             .ok()
             .and_then(|head| head.target())
             .map(|oid| oid.to_string());
-        if current.as_ref() != Some(expected) {
+        if current.as_deref() != (!expected.is_empty()).then_some(expected.as_str()) {
             bail!("HEAD 已變更，請重新整理並重新開啟操作對話框。");
         }
     }
@@ -275,6 +288,25 @@ pub fn git_operation(path: &str, request: GitRequest) -> Result<String> {
             } else {
                 target
             });
+        }
+        GitOperation::DiscardAll => {
+            require_clean_state(&repo)?;
+            if repo.head().is_ok() {
+                run(&repo, &["reset".into(), "--hard".into(), "HEAD".into()])?;
+            } else {
+                run(
+                    &repo,
+                    &[
+                        "rm".into(),
+                        "--cached".into(),
+                        "-r".into(),
+                        "--ignore-unmatch".into(),
+                        "--".into(),
+                        ".".into(),
+                    ],
+                )?;
+            }
+            args.extend(["clean", "-fd"].map(str::to_owned));
         }
         GitOperation::Stage | GitOperation::Unstage => {
             let stage = matches!(request.operation, GitOperation::Stage);
@@ -496,7 +528,10 @@ pub fn git_operation(path: &str, request: GitRequest) -> Result<String> {
                         }
                     }
                     if old != oid {
-                        if !repo.graph_descendant_of(oid, old)? {
+                        let ancestry_timer = crate::perf::Span::new("operation.ancestry");
+                        let fast_forward = repo.graph_descendant_of(oid, old)?;
+                        drop(ancestry_timer);
+                        if !fast_forward {
                             bail!("無法快轉同步：本機分支有獨有提交或歷史已分歧，請先處理合併或 Rebase。");
                         }
                         require_clean_worktree(&repo)?;

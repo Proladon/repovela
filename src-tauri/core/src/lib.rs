@@ -27,6 +27,8 @@ use std::io::{Read, Write};
 use std::path::{Component, Path};
 use std::process::{Command, Stdio};
 
+mod perf;
+
 const PATCH_LIMIT: usize = 1024 * 1024;
 const PATCH_LINES_LIMIT: usize = 10_000;
 
@@ -296,10 +298,19 @@ fn limited_history(repo: &Repository, tips: &[Oid], limit: usize) -> Result<Vec<
 }
 
 pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Result<Snapshot> {
+    let _total = perf::Span::new("repository.total");
+    let refs_timer = perf::Span::new("repository.refs");
+    let open_timer = perf::Span::new("repository.open");
     let repo = Repository::open(path).context("專案無法開啟，資料夾可能已移動或刪除。")?;
+    drop(open_timer);
     let limit = limit.clamp(1, 5000);
+    let branches_timer = perf::Span::new("repository.branches");
     let branches = BranchInfo::list_all(&repo, include_remotes)?;
+    drop(branches_timer);
+    let tags_timer = perf::Span::new("repository.tags");
     let tags = TagInfo::list_all(&repo)?;
+    drop(tags_timer);
+    drop(refs_timer);
     let head = repo.head().ok();
     let head_oid = head
         .as_ref()
@@ -320,6 +331,7 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
         }
     }
     let mut commits = Vec::new();
+    let history_timer = perf::Span::new("repository.history");
     let oids = match limited_history(&repo, &ordered_tips, limit + 1) {
         Ok(oids) => oids,
         Err(_) => {
@@ -336,9 +348,11 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
     for oid in oids {
         commits.push(CommitInfo::from_git2_commit(&repo.find_commit(oid)?));
     }
+    drop(history_timer);
     let has_more = commits.len() > limit;
     commits.truncate(limit);
     let commit_count = commits.len();
+    let graph_timer = perf::Span::new("repository.graph");
     let layout = git::graph::build_graph(&commits, &branches, &tags, None, head_oid);
     let rows = layout
         .nodes
@@ -351,6 +365,8 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
             cells: n.cells.into_iter().map(Cell::from).collect(),
         })
         .collect();
+    drop(graph_timer);
+    let status_timer = perf::Span::new("repository.status");
     let mut working_files = Vec::new();
     if !repo.is_bare() {
         let mut opts = git2::StatusOptions::new();
@@ -386,6 +402,7 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
         }
     }
     working_files.sort_by(|a, b| a.path.cmp(&b.path));
+    drop(status_timer);
     let mut upstream = None;
     let mut ahead = 0;
     let mut behind = 0;

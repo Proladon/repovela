@@ -82,6 +82,7 @@ export interface OwnershipIssue {
 export type GitOperation =
   | 'stage'
   | 'unstage'
+  | 'discardAll'
   | 'commit'
   | 'createBranch'
   | 'switchBranch'

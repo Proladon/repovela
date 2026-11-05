@@ -12,6 +12,7 @@ vi.mock('./WindowTitlebar.vue', () => ({ default: { render: () => null } }));
 
 const mocked = vi.hoisted(() => ({
   operate: vi.fn(),
+  confirm: vi.fn(),
   autoFetch: vi.fn(),
   repository: vi.fn(),
   commit: vi.fn(),
@@ -28,6 +29,7 @@ const mocked = vi.hoisted(() => ({
   requestBranches: vi.fn(),
   requestAction: vi.fn(),
 }));
+vi.mock('@tauri-apps/plugin-dialog', () => ({ confirm: mocked.confirm }));
 vi.mock('./api', () => ({
   native: true,
   demo: false,
@@ -843,6 +845,30 @@ describe('桌面分頁與瀏覽互動', () => {
     expect((button as HTMLButtonElement).disabled).toBe(false);
     await fireEvent.click(button);
     expect(mocked.website).toHaveBeenCalledTimes(2);
+  });
+  it('目前 checkout 的 commit 保持高亮，並隨 HEAD 更新', async () => {
+    saveProjects();
+    let head = commits[0].oid;
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      head: 'HEAD',
+      headOid: head,
+      rows: snapshot(path).rows.map((row) => ({ ...row, isHead: row.commit?.oid === head })),
+    }));
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    const first = document.getElementById(`commit-${commits[0].oid}`)!;
+    const second = document.getElementById(`commit-${commits[1].oid}`)!;
+    expect(first.classList.contains('checkout-head')).toBe(true);
+    expect(first.classList.contains('selected')).toBe(false);
+    expect(second.classList.contains('selected')).toBe(true);
+    await fireEvent.click(first);
+    expect(first.classList.contains('checkout-head')).toBe(true);
+    expect(first.classList.contains('selected')).toBe(true);
+    head = commits[1].oid;
+    await fireEvent.click(screen.getByRole('button', { name: '重新整理' }));
+    await waitFor(() => expect(second.classList.contains('checkout-head')).toBe(true));
+    expect(first.classList.contains('checkout-head')).toBe(false);
   });
   it('單擊 commit 只選取，雙擊直接 Checkout 並檢查 HEAD', async () => {
     saveProjects();
@@ -2042,6 +2068,31 @@ describe('桌面分頁與瀏覽互動', () => {
     );
     await waitFor(() => expect(screen.queryByRole('button', { name: '繼續目前操作' })).toBeNull());
   });
+  it('工作區右鍵可確認或取消捨棄所有變更', async () => {
+    saveProjects();
+    mocked.repository.mockImplementation(async (path: string) => ({
+      ...snapshot(path),
+      workingFiles: [
+        { path: 'new.txt', staged: false, unstaged: true, untracked: true, conflict: false },
+      ],
+    }));
+    mocked.confirm.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    render(App);
+    await screen.findByRole('heading', { name: '初始版本' });
+    await fireEvent.contextMenu(document.getElementById('commit-worktree')!);
+    await fireEvent.click(screen.getByRole('menuitem', { name: '捨棄所有變更' }));
+    expect(mocked.operate).not.toHaveBeenCalled();
+    await fireEvent.click(document.getElementById('commit-worktree')!);
+    await fireEvent.contextMenu(document.querySelector('.detail-scroll')!);
+    await fireEvent.click(screen.getByRole('menuitem', { name: '捨棄所有變更' }));
+    await waitFor(() =>
+      expect(mocked.operate).toHaveBeenCalledWith('/a', {
+        operation: 'discardAll',
+        expectedHead: commits[0].oid,
+      }),
+    );
+  });
+
   it('檔案右鍵選單區分暫存區域，沿用同一個操作並關閉選單', async () => {
     saveProjects();
     mocked.repository.mockImplementation(async (path: string) => ({
