@@ -1065,6 +1065,12 @@ pre {
   color: #888f9f;
   font-size: calc(10px * var(--font-scale, 1));
 }
+.working-row .worktree-label .plus {
+  color: #88c7a0;
+}
+.working-row .worktree-label .minus {
+  color: #d98591;
+}
 .count {
   font-size: calc(10px * var(--font-scale, 1));
   border: 1px solid #373b48;

@@ -181,6 +181,8 @@ export interface Snapshot {
   rows: Row[];
   maxLane: number;
   workingFiles: WorkingFile[];
+  workingInsertions?: number | null;
+  workingDeletions?: number | null;
   hasMore: boolean;
   commitCount: number;
   upstream: string | null;

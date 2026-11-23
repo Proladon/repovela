@@ -159,6 +159,8 @@ pub struct Snapshot {
     pub rows: Vec<Row>,
     pub max_lane: usize,
     pub working_files: Vec<WorkingFile>,
+    pub working_insertions: Option<usize>,
+    pub working_deletions: Option<usize>,
     pub has_more: bool,
     pub commit_count: usize,
     pub upstream: Option<String>,
@@ -402,6 +404,32 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
         }
     }
     working_files.sort_by(|a, b| a.path.cmp(&b.path));
+    // Count both index and worktree changes, including the content of new files.
+    let working_stats = if !repo.is_bare() && !working_files.is_empty() {
+        (|| -> Result<(usize, usize)> {
+            let head_tree = head_oid
+                .map(|oid| repo.find_commit(oid)?.tree())
+                .transpose()?;
+            let staged = repo
+                .diff_tree_to_index(head_tree.as_ref(), None, None)?
+                .stats()?;
+            let mut options = DiffOptions::new();
+            options
+                .include_untracked(true)
+                .recurse_untracked_dirs(true)
+                .show_untracked_content(true);
+            let unstaged = repo
+                .diff_index_to_workdir(None, Some(&mut options))?
+                .stats()?;
+            Ok((
+                staged.insertions() + unstaged.insertions(),
+                staged.deletions() + unstaged.deletions(),
+            ))
+        })()
+        .ok()
+    } else {
+        None
+    };
     drop(status_timer);
     let mut upstream = None;
     let mut ahead = 0;
@@ -467,6 +495,8 @@ pub fn read_repository(path: &str, include_remotes: bool, limit: usize) -> Resul
         rows,
         max_lane: layout.max_lane,
         working_files,
+        working_insertions: working_stats.map(|stats| stats.0),
+        working_deletions: working_stats.map(|stats| stats.1),
         has_more,
         commit_count,
         upstream,

@@ -17,6 +17,26 @@ fn commit(repo: &Repository, message: &str) -> git2::Oid {
 }
 
 #[test]
+fn working_stats_include_staged_unstaged_and_untracked_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let repo = Repository::init(dir.path()).unwrap();
+    let file = dir.path().join("tracked.txt");
+    std::fs::write(&file, "old\n").unwrap();
+    commit(&repo, "initial");
+    std::fs::write(&file, "staged\n").unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_path(Path::new("tracked.txt")).unwrap();
+    index.write().unwrap();
+    std::fs::write(&file, "working\n").unwrap();
+    std::fs::create_dir(dir.path().join("new")).unwrap();
+    std::fs::write(dir.path().join("new/file.txt"), "one\ntwo\n").unwrap();
+
+    let snapshot = read_repository(dir.path().to_str().unwrap(), false, 10).unwrap();
+    assert_eq!(snapshot.working_insertions, Some(4));
+    assert_eq!(snapshot.working_deletions, Some(2));
+}
+
+#[test]
 fn auto_fetch_updates_remote_history_without_changing_local_head() {
     let root = tempfile::tempdir().unwrap();
     let source_path = root.path().join("source");

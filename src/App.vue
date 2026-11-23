@@ -1882,11 +1882,16 @@ onUnmounted(() => {
                             </div>
                             <div class="commit-text worktree-label">
                               <strong>工作區</strong>
-                              <span>{{
-                                snapshot.workingFiles.length
-                                  ? `${snapshot.workingFiles.length} 個檔案尚未提交`
-                                  : '工作目錄乾淨'
-                              }}</span>
+                              <template v-if="snapshot.workingFiles.length">
+                                <span>{{ snapshot.workingFiles.length }} 個檔案尚未提交</span>
+                                <span v-if="snapshot.workingInsertions != null" class="plus"
+                                  >+{{ snapshot.workingInsertions }}</span
+                                >
+                                <span v-if="snapshot.workingDeletions != null" class="minus"
+                                  >-{{ snapshot.workingDeletions }}</span
+                                >
+                              </template>
+                              <span v-else>工作目錄乾淨</span>
                             </div>
                             <span /><span /><span /></button></template
                         ><template v-else-if="row.commit"
