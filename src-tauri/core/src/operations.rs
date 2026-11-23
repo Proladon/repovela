@@ -64,6 +64,7 @@ pub enum GitOperation {
     Commit,
     CreateBranch,
     SwitchBranch,
+    DeleteBranch,
     SyncBranch,
     Fetch,
     Pull,
@@ -104,6 +105,7 @@ pub struct GitRequest {
     pub stash_oid: Option<String>,
     pub include_untracked: Option<bool>,
     pub restore_index: Option<bool>,
+    pub delete_remote: Option<bool>,
 }
 
 fn run(repo: &Repository, args: &[String]) -> Result<String> {
@@ -429,6 +431,51 @@ pub fn git_operation(path: &str, request: GitRequest) -> Result<String> {
             if matches!(request.operation, GitOperation::CreateBranch) && request.oid.is_some() {
                 args.push(target_commit(&repo, &request)?.to_string());
             }
+        }
+        GitOperation::DeleteBranch => {
+            require_clean_state(&repo)?;
+            let name = branch_name(&request)?;
+            let local = repo
+                .find_branch(name, BranchType::Local)
+                .context("找不到此本機分支，請重新整理。")?;
+            if local.is_head() {
+                bail!("無法刪除目前分支，請先切換分支。");
+            }
+            let local_oid = local.get().peel_to_commit()?.id().to_string();
+            if request.expected_local_oid.as_deref() != Some(local_oid.as_str()) {
+                bail!("本機分支已變更，請重新開啟刪除對話框。");
+            }
+            let remote_oid = if request.delete_remote == Some(true) {
+                repo.find_remote("origin").context("找不到 origin 遠端。")?;
+                let remote = repo
+                    .find_branch(&format!("origin/{name}"), BranchType::Remote)
+                    .context("找不到 origin 同名分支，請先 Fetch 並重新整理。")?;
+                let oid = remote.get().peel_to_commit()?.id().to_string();
+                if request.oid.as_deref() != Some(oid.as_str()) {
+                    bail!("origin 分支已變更，請重新開啟刪除對話框。");
+                }
+                Some(oid)
+            } else {
+                None
+            };
+            run(
+                &repo,
+                &["branch".into(), "-d".into(), "--".into(), name.into()],
+            )?;
+            if let Some(oid) = remote_oid {
+                let reference = format!("refs/heads/{name}");
+                return run(
+                    &repo,
+                    &[
+                        "push".into(),
+                        format!("--force-with-lease={reference}:{oid}"),
+                        "origin".into(),
+                        format!(":{reference}"),
+                    ],
+                )
+                .context("本機分支已刪除，但刪除 origin 分支失敗");
+            }
+            return Ok("本機分支已刪除。".into());
         }
         GitOperation::SyncBranch => {
             require_clean_state(&repo)?;

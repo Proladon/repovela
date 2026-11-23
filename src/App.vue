@@ -52,6 +52,7 @@ import GitActions from './GitActions.vue';
 import ContextMenu from './ContextMenu.vue';
 import CommitActionDialog from './CommitActionDialog.vue';
 import SyncBranchDialog from './SyncBranchDialog.vue';
+import DeleteBranchDialog from './DeleteBranchDialog.vue';
 import StashDialog from './StashDialog.vue';
 import ChangeRequestsPage from './ChangeRequestsPage.vue';
 import TrustProjectDialog from './TrustProjectDialog.vue';
@@ -129,6 +130,10 @@ const syncBranchAction = shallowRef<{
   expectedHead: string;
   expectedBranch: string;
 } | null>(null);
+
+const deleteBranchAction = shallowRef<{ path: string; branch: Branch; remote?: Branch } | null>(
+  null,
+);
 
 const storageKey = demo ? `${STORAGE_KEY}-demo` : STORAGE_KEY;
 const updater = useAppUpdate(
@@ -512,6 +517,7 @@ watch([() => tab.value?.path, settingsOpen], () => {
   stashError.value = '';
   commitAction.value = null;
   syncBranchAction.value = null;
+  deleteBranchAction.value = null;
 });
 watch(
   () => snapshot.value?.operationState,
@@ -1046,7 +1052,33 @@ function openBranchMenu(event: MouseEvent, name: string) {
         gitActions.value?.openBranches();
       },
     },
-    ...(branch.isRemote ? [syncBranchItem([branch])] : []),
+    ...(branch.isRemote
+      ? [syncBranchItem([branch])]
+      : [
+          {
+            label: '刪除分支…',
+            icon: Trash2,
+            separatorBefore: true,
+            disabled:
+              !native ||
+              operating.value ||
+              loading.value ||
+              branch.isHead ||
+              (snapshot.value?.operationState ?? 'clean') !== 'clean',
+            disabledReason: branch.isHead ? '無法刪除目前分支，請先切換分支。' : undefined,
+            run: () => {
+              if (!tab.value || branch.isHead) return;
+              branchMenu.value = false;
+              deleteBranchAction.value = {
+                path: tab.value.path,
+                branch,
+                remote: snapshot.value?.branches.find(
+                  (b) => b.isRemote && b.name === `origin/${branch.name}`,
+                ),
+              };
+            },
+          },
+        ]),
   ]);
 }
 function checkoutBranch(name: string) {
@@ -1306,6 +1338,7 @@ function handleKeydown(e: KeyboardEvent) {
     !ownershipIssue.value &&
     !commitAction.value &&
     !syncBranchAction.value &&
+    !deleteBranchAction.value &&
     !pathDialog.value &&
     !help.value
   ) {
@@ -1316,6 +1349,10 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.target instanceof HTMLElement && e.target.closest('.terminal-panel')) return;
   if (ownershipIssue.value) {
     if (e.key === 'Escape' && !trusting.value && !adding.value) ownershipIssues.value.shift();
+    return;
+  }
+  if (deleteBranchAction.value) {
+    if (e.key === 'Escape' && !operating.value) deleteBranchAction.value = null;
     return;
   }
   if (syncBranchAction.value) {
@@ -2249,6 +2286,14 @@ onUnmounted(() => {
       :error="stashError"
       :operate="operateStash"
       @close="stashOpen = false"
+    />
+    <DeleteBranchDialog
+      v-if="deleteBranchAction && deleteBranchAction.path === tab?.path"
+      :branch="deleteBranchAction.branch"
+      :remote="deleteBranchAction.remote"
+      :busy="operating || loading"
+      :operate="operate"
+      @close="deleteBranchAction = null"
     />
     <SyncBranchDialog
       v-if="syncBranchAction && snapshot && syncBranchAction.path === tab?.path"

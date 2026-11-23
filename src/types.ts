@@ -86,6 +86,7 @@ export type GitOperation =
   | 'commit'
   | 'createBranch'
   | 'switchBranch'
+  | 'deleteBranch'
   | 'syncBranch'
   | 'fetch'
   | 'pull'
@@ -123,6 +124,7 @@ export interface GitRequest {
   stashOid?: string;
   includeUntracked?: boolean;
   restoreIndex?: boolean;
+  deleteRemote?: boolean;
 }
 export interface StashEntry {
   index: number;

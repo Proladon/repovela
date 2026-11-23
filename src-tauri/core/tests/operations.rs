@@ -1126,3 +1126,57 @@ fn discard_all_works_before_first_commit() {
     assert!(!dir.path().join("new.txt").exists());
     assert!(repo.index().unwrap().is_empty());
 }
+
+#[test]
+fn delete_branch_checks_reviewed_tips_and_optionally_deletes_origin() {
+    let dir = tempfile::tempdir().unwrap();
+    let remote = Repository::init_bare(dir.path().join("remote.git")).unwrap();
+    let path = dir.path().join("local");
+    let repo = setup(&path);
+    let oid = write_save(&path, "file", "base", "base");
+    let commit = repo.find_commit(oid).unwrap();
+    repo.remote("origin", dir.path().join("remote.git").to_str().unwrap())
+        .unwrap();
+    repo.branch("feature/test", &commit, false).unwrap();
+    assert!(std::process::Command::new("git")
+        .current_dir(&path)
+        .args([
+            "push",
+            "origin",
+            "refs/heads/feature/test:refs/heads/feature/test"
+        ])
+        .status()
+        .unwrap()
+        .success());
+    let req = |local: String, remote: String| json!({"operation":"deleteBranch", "branch":"feature/test", "expectedLocalOid":local, "deleteRemote":true, "oid":remote});
+    assert!(run(
+        &path,
+        req(
+            "0000000000000000000000000000000000000000".into(),
+            oid.to_string()
+        )
+    )
+    .is_err());
+    assert!(run(
+        &path,
+        req(
+            oid.to_string(),
+            "0000000000000000000000000000000000000000".into()
+        )
+    )
+    .is_err());
+    assert!(repo
+        .find_branch("feature/test", git2::BranchType::Local)
+        .is_ok());
+    run(&path, req(oid.to_string(), oid.to_string())).unwrap();
+    assert!(repo
+        .find_branch("feature/test", git2::BranchType::Local)
+        .is_err());
+    assert!(remote.find_reference("refs/heads/feature/test").is_err());
+    let current = repo.head().unwrap().shorthand().unwrap().to_owned();
+    assert!(run(
+        &path,
+        json!({"operation":"deleteBranch", "branch":current, "expectedLocalOid":oid.to_string()})
+    )
+    .is_err());
+}

@@ -90,6 +90,8 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 pnpm run tauri build --target universal-apple-darwin --bundles app,dmg
 ```
 
+本機分支右鍵選單可刪除分支，確認視窗可選擇同時刪除 origin 同名分支；目前分支與未合併的分支無法刪除。
+
 ## 發布 Windows 與 macOS 更新
 
 更新使用 [Tauri Updater](https://v2.tauri.app/plugin/updater/) 驗證安裝包簽章，從此儲存庫最新正式 GitHub Release 的 `latest.json` 取得版本。建議使用 NSIS 安裝版；可攜式執行檔執行更新時會啟動安裝程式，改用安裝版，不會覆寫原本的可攜式檔案。
@@ -156,7 +158,7 @@ Windows 桌面驗證可執行 `pnpm run validate:windows`，自動建置並測�
 
 ## 第一版範圍
 
-- 尚未提供逐檔丟棄變更、強制推送與刪除分支。Rebase 使用非互動式流程，不保留 merge 結構；新增 Tag 不簽署。修改目前分支歷史的操作需要先切換至本機分支；Merge、Rebase、Cherry-pick、Revert 開始前需要乾淨工作區。
+- 尚未提供逐檔丟棄變更與強制推送。Rebase 使用非互動式流程，不保留 merge 結構；新增 Tag 不簽署。修改目前分支歷史的操作需要先切換至本機分支；Merge、Rebase、Cherry-pick、Revert 開始前需要乾淨工作區。
 - 遠端分支顯示本機的 remote-tracking refs；按 Fetch 才會從遠端更新。
 - 預設讀取 500 筆 commit，可逐次增加到 5,000 筆。
 - 每筆 commit 最多列出 1,000 個檔案；單一 diff 超過 1 MB 或 10,000 行時截斷顯示。
